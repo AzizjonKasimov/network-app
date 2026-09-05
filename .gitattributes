@@ -1,0 +1,8 @@
+# gradlew is a POSIX shell script; CRLF would break it on Linux and macOS.
+* text=auto
+gradlew text eol=lf
+*.sh text eol=lf
+gradlew.bat text eol=crlf
+*.jar binary
+*.keystore binary
+*.apk binary

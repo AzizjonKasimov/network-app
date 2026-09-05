@@ -1,0 +1,28 @@
+# Local agent/context loaders
+AGENTS.md
+CLAUDE.md
+PROJECT_CONTEXT.md
+
+# Local secrets and environment
+.env
+.env.*
+!.env.example
+
+# Android and Gradle
+.gradle/
+.kotlin/
+build/
+**/build/
+local.properties
+*.apk
+*.aab
+*.jks
+*.keystore
+keystore.properties
+
+# IDE and local machine files
+.idea/
+*.iml
+captures/
+.DS_Store
+Thumbs.db
