@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Network App</string>
+    <string name="ai_request_channel_name">AI processing</string>
+    <string name="ai_request_notification_title">Preparing your note</string>
+    <string name="ai_request_notification_text">The assistant is still working. You can keep using other apps.</string>
 </resources>

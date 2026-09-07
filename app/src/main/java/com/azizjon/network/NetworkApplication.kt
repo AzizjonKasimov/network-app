@@ -1,6 +1,7 @@
 package com.azizjon.network
 
 import android.app.Application
+import com.azizjon.network.ai.CaptureDraftStore
 import com.azizjon.network.ai.GatewayClient
 import com.azizjon.network.ai.GatewaySettings
 import com.azizjon.network.backup.GitHubBackupSettings
@@ -18,4 +19,5 @@ class NetworkApplication : Application() {
     }
     val gatewaySettings: GatewaySettings by lazy { GatewaySettings(this) }
     val gatewayClient: GatewayClient by lazy { GatewayClient(gatewaySettings::token) }
+    val captureDraftStore: CaptureDraftStore by lazy { CaptureDraftStore(this) }
 }

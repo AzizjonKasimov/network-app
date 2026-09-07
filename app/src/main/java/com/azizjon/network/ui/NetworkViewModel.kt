@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.azizjon.network.NetworkApplication
 import com.azizjon.network.ai.AiCaptureState
+import com.azizjon.network.ai.AiRequestService
 import com.azizjon.network.ai.AiSearchState
 import com.azizjon.network.ai.GatewayException
 import com.azizjon.network.ai.GatewaySettingsState
@@ -21,6 +22,7 @@ import com.azizjon.network.data.PersonDraft
 import com.azizjon.network.data.PersonEntity
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -28,6 +30,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZoneId
 import java.util.Locale
@@ -45,6 +48,7 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
     private val backupManager = app.backupManager
     private val gatewaySettings = app.gatewaySettings
     private val gatewayClient = app.gatewayClient
+    private val captureDraftStore = app.captureDraftStore
 
     val snapshot: StateFlow<NetworkSnapshot> = repository.observeSnapshot().stateIn(
         viewModelScope,
@@ -76,9 +80,17 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
     private var backupJob: Job? = null
     private var captureJob: Job? = null
     private var searchJob: Job? = null
+    private var draftSaveJob: Job? = null
 
     init {
         if (settings.status.backupNeeded) scheduleAutoBackup()
+        viewModelScope.launch {
+            val restored = withContext(Dispatchers.IO) {
+                runCatching { captureDraftStore.read() }.getOrDefault("")
+            }
+            // Never clobber something typed while the encrypted read was running.
+            if (restored.isNotBlank() && _aiDraft.value.isBlank()) _aiDraft.value = restored
+        }
     }
 
     fun showMessage(value: String) {
@@ -124,6 +136,7 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         captureJob?.cancel()
         _aiDraft.value = value
         _aiCaptureState.value = AiCaptureState.Idle
+        persistDraft(value)
     }
 
     fun interpretAiDraft() {
@@ -143,25 +156,35 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         }
         captureJob?.cancel()
         captureJob = viewModelScope.launch {
-            _aiCaptureState.value = AiCaptureState.Resolving
             try {
-                val now = Instant.now()
-                val resolution = gatewayClient.resolveTarget(
-                    input = rawInput,
-                    now = now,
-                    zoneId = ZoneId.systemDefault(),
-                    locale = Locale.getDefault().toLanguageTag(),
-                )
-                if (_aiDraft.value != rawInput) return@launch
-                val candidates = PersonResolver.resolve(snapshot.value.people, resolution.targetName)
-                when {
-                    candidates.exact != null -> buildAiProposal(rawInput, resolution.targetName, candidates.exact)
-                    candidates.suggestions.isNotEmpty() -> {
-                        _aiCaptureState.value = AiCaptureState.ChooseTarget(
-                            TargetChoiceState(rawInput, resolution.targetName, candidates.suggestions),
-                        )
+                AiRequestService.holdingProcess(app) {
+                    // Asking the assistant who a note is about costs a whole round
+                    // trip. When the note already names somebody saved here, the
+                    // phone can answer that offline and skip straight to the work.
+                    val known = PersonResolver.resolveFromNote(snapshot.value.people, rawInput)
+                    if (known != null) {
+                        buildAiProposal(rawInput, known.name, known)
+                        return@holdingProcess
                     }
-                    else -> buildAiProposal(rawInput, resolution.targetName, null)
+                    _aiCaptureState.value = AiCaptureState.Resolving
+                    val now = Instant.now()
+                    val resolution = gatewayClient.resolveTarget(
+                        input = rawInput,
+                        now = now,
+                        zoneId = ZoneId.systemDefault(),
+                        locale = Locale.getDefault().toLanguageTag(),
+                    )
+                    if (_aiDraft.value != rawInput) return@holdingProcess
+                    val candidates = PersonResolver.resolve(snapshot.value.people, resolution.targetName)
+                    when {
+                        candidates.exact != null -> buildAiProposal(rawInput, resolution.targetName, candidates.exact)
+                        candidates.suggestions.isNotEmpty() -> {
+                            _aiCaptureState.value = AiCaptureState.ChooseTarget(
+                                TargetChoiceState(rawInput, resolution.targetName, candidates.suggestions),
+                            )
+                        }
+                        else -> buildAiProposal(rawInput, resolution.targetName, null)
+                    }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -181,7 +204,9 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         captureJob?.cancel()
         captureJob = viewModelScope.launch {
             try {
-                buildAiProposal(choice.rawInput, choice.targetName, person)
+                AiRequestService.holdingProcess(app) {
+                    buildAiProposal(choice.rawInput, choice.targetName, person)
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -220,6 +245,7 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
             try {
                 val result = repository.applyAiProposal(proposal)
                 _aiDraft.value = ""
+                clearDraft()
                 _aiCaptureState.value = AiCaptureState.Idle
                 scheduleAutoBackup()
                 showMessage("Reviewed changes saved for ${proposal.targetName}")
@@ -287,7 +313,9 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         searchJob = viewModelScope.launch {
             _aiSearchState.value = AiSearchState(query = query, loading = true)
             try {
-                val results = gatewayClient.search(query, snapshot.value)
+                val results = AiRequestService.holdingProcess(app) {
+                    gatewayClient.search(query, snapshot.value)
+                }
                 _aiSearchState.value = AiSearchState(
                     query = query,
                     results = results,
@@ -416,6 +444,27 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         if (_aiDraft.value == rawInput) _aiCaptureState.value = AiCaptureState.Preview(proposal)
     }
 
+    /**
+     * Writes the unsent note to disk shortly after typing stops.
+     *
+     * Debounced because each write encrypts the whole draft, and a keystroke is
+     * not worth that. Losing the last few hundred milliseconds of a note to a
+     * process death is a far smaller loss than the whole note, which is what
+     * happened before anything was persisted at all.
+     */
+    private fun persistDraft(value: String) {
+        draftSaveJob?.cancel()
+        draftSaveJob = viewModelScope.launch {
+            delay(DRAFT_SAVE_DELAY_MS)
+            withContext(Dispatchers.IO) { runCatching { captureDraftStore.write(value) } }
+        }
+    }
+
+    private suspend fun clearDraft() {
+        draftSaveJob?.cancel()
+        withContext(Dispatchers.IO) { runCatching { captureDraftStore.clear() } }
+    }
+
     private fun refreshGatewaySettingsState() {
         _gatewaySettingsState.value = gatewaySettings.state
     }
@@ -427,5 +476,6 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
 
     companion object {
         private const val AUTO_BACKUP_DELAY_MS = 1_500L
+        private const val DRAFT_SAVE_DELAY_MS = 400L
     }
 }
