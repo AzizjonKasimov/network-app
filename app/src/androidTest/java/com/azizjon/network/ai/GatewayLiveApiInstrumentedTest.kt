@@ -1,6 +1,8 @@
 package com.azizjon.network.ai
 
-import android.os.ParcelFileDescriptor
+import android.content.Context
+import android.util.Log
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.azizjon.network.data.CapabilityEntity
@@ -12,28 +14,52 @@ import java.time.Instant
 import java.time.ZoneOffset
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
+/**
+ * Drives the real gateway with the token the user saved in the app's Settings.
+ *
+ * The token is read from the app's own encrypted preferences rather than pushed
+ * to the device for the test, so the run exercises exactly the credential path
+ * the app uses and no copy of the secret is left in /data/local/tmp.
+ */
 @RunWith(AndroidJUnit4::class)
 class GatewayLiveApiInstrumentedTest {
+    private val context: Context = ApplicationProvider.getApplicationContext()
+
     @Test
-    fun authorizedKeyExercisesCaptureAndSearchWithSyntheticData() = runBlocking {
+    fun theConfiguredTokenExercisesCaptureAndSearchWithSyntheticData() = runBlocking {
         val arguments = InstrumentationRegistry.getArguments()
         assumeTrue("Live gateway test is opt-in", arguments.getString("liveGateway") == "true")
 
-        val client = GatewayClient { readLiveApiKey() }
+        val settings = GatewaySettings(context)
+        assertTrue(
+            "Save the gateway access token in the app's Settings screen before running this test",
+            settings.state.tokenSaved,
+        )
+        val client = GatewayClient(settings::token)
         assertTrue(client.configured)
 
         val now = Instant.now()
-        val draft = "Synthetic Alex needs help with Kotlin testing."
+        // Keep the fixture name ordinary. A name that reads as placeholder data
+        // ("Synthetic Alex") makes the model refuse to treat the note as a real
+        // capture, which fails the test for a reason the app never hits.
+        val draft = "Alex Rivera needs help with Kotlin testing."
 
-        val proposal = liveStage("proposal") {
+        // The capture path as the view model runs it: name the target, then propose.
+        val target = liveStage("resolveTarget") {
+            client.resolveTarget(draft, now, ZoneOffset.UTC, "en-US")
+        }
+        assertEquals("Alex Rivera", target.targetName)
+
+        val proposal = liveStage("proposeChanges") {
             client.proposeChanges(
                 input = draft,
-                targetName = "Synthetic Alex",
+                targetName = "Alex Rivera",
                 snapshot = NetworkSnapshot(),
                 person = null,
                 now = now,
@@ -42,7 +68,7 @@ class GatewayLiveApiInstrumentedTest {
             )
         }
         assertEquals(draft, proposal.rawInput)
-        assertEquals("Synthetic Alex", proposal.targetName)
+        assertEquals("Alex Rivera", proposal.targetName)
         assertTrue(
             "The explicit synthetic facts should produce at least one proposed change",
             proposal.profilePatches.isNotEmpty() ||
@@ -50,14 +76,9 @@ class GatewayLiveApiInstrumentedTest {
                 proposal.newCapabilities.isNotEmpty(),
         )
 
-        val target = liveStage("target resolution") {
-            client.resolveTarget(draft, now, ZoneOffset.UTC, "en-US")
-        }
-        assertEquals("Synthetic Alex", target.targetName)
-
         val person = PersonEntity(
             id = 101,
-            name = "Synthetic Alex",
+            name = "Alex Rivera",
             organization = "Lunar Lab",
             role = "Android engineer",
             location = "Seoul",
@@ -97,32 +118,42 @@ class GatewayLiveApiInstrumentedTest {
             ),
         )
 
-        val searchResults = liveStage("network search") {
+        // Once the person exists, the note names them outright and the capture
+        // should skip resolveTarget entirely - the whole point of the fast path.
+        val skipped = PersonResolver.resolveFromNote(snapshot.people, draft)
+        assertNotNull("A note naming a saved person must not need the assistant to identify them", skipped)
+        assertEquals(person.id, skipped?.id)
+
+        val fastProposal = liveStage("proposeChanges (fast path, no resolveTarget)") {
+            client.proposeChanges(
+                input = draft,
+                targetName = person.name,
+                snapshot = snapshot,
+                person = person,
+                now = now,
+                zoneId = ZoneOffset.UTC,
+                locale = "en-US",
+            )
+        }
+        assertEquals(person.id, fastProposal.targetPersonId)
+
+        val searchResults = liveStage("search") {
             client.search("Who can build Kotlin prototypes?", snapshot)
         }
         assertTrue(searchResults.any { it.person.id == person.id && it.evidence.isNotEmpty() })
     }
 
-    private suspend fun <T> liveStage(name: String, block: suspend () -> T): T = try {
-        block()
-    } catch (error: GatewayException) {
-        throw AssertionError("Live gateway $name failed: ${error.message}", error)
+    private suspend fun <T> liveStage(name: String, block: suspend () -> T): T {
+        val started = System.currentTimeMillis()
+        return try {
+            block().also { Log.i(TAG, "$name took ${System.currentTimeMillis() - started} ms") }
+        } catch (error: GatewayException) {
+            Log.w(TAG, "$name failed after ${System.currentTimeMillis() - started} ms")
+            throw AssertionError("Live gateway $name failed: ${error.message}", error)
+        }
     }
 
-    private fun readLiveApiKey(): String {
-        val descriptor = InstrumentationRegistry.getInstrumentation().uiAutomation
-            .executeShellCommand("cat $LIVE_ENV_PATH")
-        val contents = ParcelFileDescriptor.AutoCloseInputStream(descriptor).bufferedReader().use { it.readText() }
-        val match = contents.lineSequence()
-            .mapNotNull { LIVE_KEY_PATTERN.matchEntire(it) }
-            .firstOrNull()
-            ?: error("Push a temporary live-test .env file before running this opt-in test")
-        return match.groupValues[1].trim().trim('"', '\'')
-            .also { key -> require(key.length >= 20) { "The live-test key is missing or malformed" } }
-    }
-
-    companion object {
-        private const val LIVE_ENV_PATH = "/data/local/tmp/network-app-gateway-live.env"
-        private val LIVE_KEY_PATTERN = Regex("""\s*(?:export\s+)?GEMINI_API_KEY\s*=\s*(.*)\s*""")
+    private companion object {
+        const val TAG = "LiveGatewayTiming"
     }
 }

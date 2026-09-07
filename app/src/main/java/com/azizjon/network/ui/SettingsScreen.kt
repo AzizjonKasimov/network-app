@@ -93,7 +93,7 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = accessToken,
                         onValueChange = { if (it.length <= GatewaySettings.MAX_TOKEN_CHARACTERS) accessToken = it },
-                        label = { Text(if (gatewaySettingsState.tokenSaved) "Replace access token" else "Access tokey") },
+                        label = { Text(if (gatewaySettingsState.tokenSaved) "Replace access token" else "Access token") },
                         visualTransformation = PasswordVisualTransformation(),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
@@ -106,12 +106,12 @@ fun SettingsScreen(
                                 accessToken = ""
                             },
                             modifier = Modifier.weight(1f),
-                        ) { Text("Save key") }
+                        ) { Text("Save token") }
                         Button(
                             enabled = gatewaySettingsState.tokenSaved,
                             onClick = onClearAccessToken,
                             modifier = Modifier.weight(1f),
-                        ) { Text("Remove key") }
+                        ) { Text("Remove token") }
                     }
                     HorizontalDivider()
                     Text(
