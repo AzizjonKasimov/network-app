@@ -10,6 +10,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -30,7 +31,11 @@ class NetworkDatabaseMigrationTest {
         createVersionOneDatabase()
 
         val database = Room.databaseBuilder(context, NetworkDatabase::class.java, TEST_DATABASE)
-            .addMigrations(NetworkDatabase.MIGRATION_1_2, NetworkDatabase.MIGRATION_2_3)
+            .addMigrations(
+                NetworkDatabase.MIGRATION_1_2,
+                NetworkDatabase.MIGRATION_2_3,
+                NetworkDatabase.MIGRATION_3_4,
+            )
             .build()
         try {
             val dao = database.networkDao()
@@ -47,6 +52,9 @@ class NetworkDatabaseMigrationTest {
             assertEquals("Legacy Corp", affiliation.organization)
             assertEquals("Legacy role", affiliation.role)
             assertTrue(affiliation.current)
+            // A position recorded before the work/education split is work.
+            assertFalse(affiliation.isEducation)
+            assertTrue(dao.allFacts().isEmpty())
         } finally {
             database.close()
         }

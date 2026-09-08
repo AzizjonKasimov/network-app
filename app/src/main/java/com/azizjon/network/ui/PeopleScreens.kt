@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.azizjon.network.data.AffiliationEntity
 import com.azizjon.network.data.CapabilityEntity
+import com.azizjon.network.data.FactEntity
 import com.azizjon.network.data.InteractionEntity
 import com.azizjon.network.data.NeedEntity
 import com.azizjon.network.data.NetworkSnapshot
@@ -191,18 +192,21 @@ fun PersonDetailScreen(
     onAddInteraction: (Long, String) -> Unit,
     onAddNeed: (Long, String) -> Unit,
     onAddCapability: (Long, String) -> Unit,
-    onAddAffiliation: (Long, String, String) -> Unit,
+    onAddAffiliation: (Long, String, String, Boolean) -> Unit,
+    onAddFact: (Long, String) -> Unit,
     onDeleteInteraction: (InteractionEntity) -> Unit,
     onDeleteNeed: (NeedEntity) -> Unit,
     onDeleteCapability: (CapabilityEntity) -> Unit,
     onDeleteAffiliation: (AffiliationEntity) -> Unit,
     onSetAffiliationCurrent: (AffiliationEntity, Boolean) -> Unit,
+    onDeleteFact: (FactEntity) -> Unit,
 ) {
     var editing by rememberSaveable(person.id) { mutableStateOf(false) }
     var addKind by rememberSaveable(person.id) { mutableStateOf<RecordKind?>(null) }
     var confirmDelete by rememberSaveable(person.id) { mutableStateOf(false) }
     var addingAffiliation by rememberSaveable(person.id) { mutableStateOf(false) }
     val affiliations = snapshot.affiliationsFor(person.id)
+    val facts = snapshot.factsFor(person.id)
     val interactions = snapshot.interactionsFor(person.id)
     val needs = snapshot.needsFor(person.id)
     val capabilities = snapshot.capabilitiesFor(person.id)
@@ -231,6 +235,11 @@ fun PersonDetailScreen(
                         onDelete = { onDeleteAffiliation(item) },
                         onSetCurrent = { current -> onSetAffiliationCurrent(item, current) },
                     )
+                }
+            }
+            RecordSection("Background", facts.size, { addKind = RecordKind.FACT }) {
+                facts.forEach { item ->
+                    RecordCard(item.text, item.lastConfirmedAt, { onDeleteFact(item) })
                 }
             }
             RecordSection("Capabilities / resources", capabilities.size, { addKind = RecordKind.CAPABILITY }) {
@@ -270,6 +279,7 @@ fun PersonDetailScreen(
             onDismiss = { addKind = null },
             onSave = { text ->
                 when (kind) {
+                    RecordKind.FACT -> onAddFact(person.id, text)
                     RecordKind.CAPABILITY -> onAddCapability(person.id, text)
                     RecordKind.NEED -> onAddNeed(person.id, text)
                     RecordKind.INTERACTION -> onAddInteraction(person.id, text)
@@ -281,8 +291,8 @@ fun PersonDetailScreen(
     if (addingAffiliation) {
         AddAffiliationDialog(
             onDismiss = { addingAffiliation = false },
-            onSave = { organization, role ->
-                onAddAffiliation(person.id, organization, role)
+            onSave = { organization, role, education ->
+                onAddAffiliation(person.id, organization, role, education)
                 addingAffiliation = false
             },
         )
@@ -307,15 +317,21 @@ private fun AffiliationCard(
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(item.label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+            val state = when {
+                item.isEducation && item.current -> "Studying"
+                item.isEducation -> "Studied"
+                item.current -> "Current"
+                else -> "Past"
+            }
             Text(
-                "${if (item.current) "Current" else "Past"} · confirmed ${formatDate(item.lastConfirmedAt)}",
+                "$state · confirmed ${formatDate(item.lastConfirmedAt)}",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(item.current, onSetCurrent)
                 Text(
-                    if (item.current) "Still there" else "Left",
+                    if (item.current) "Still there" else if (item.isEducation) "Finished" else "Left",
                     modifier = Modifier.padding(start = 8.dp).weight(1f),
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -326,9 +342,10 @@ private fun AffiliationCard(
 }
 
 @Composable
-private fun AddAffiliationDialog(onDismiss: () -> Unit, onSave: (String, String) -> Unit) {
+private fun AddAffiliationDialog(onDismiss: () -> Unit, onSave: (String, String, Boolean) -> Unit) {
     var organization by remember { mutableStateOf("") }
     var role by remember { mutableStateOf("") }
+    var education by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Add a position") },
@@ -347,15 +364,22 @@ private fun AddAffiliationDialog(onDismiss: () -> Unit, onSave: (String, String)
                 OutlinedTextField(
                     value = role,
                     onValueChange = { role = it },
-                    label = { Text("Role") },
+                    label = { Text(if (education) "Qualification" else "Role") },
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(education, { education = it })
+                    Text(
+                        if (education) "Studied here" else "Worked here",
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
             }
         },
         confirmButton = {
             TextButton(
                 enabled = organization.isNotBlank() || role.isNotBlank(),
-                onClick = { onSave(organization, role) },
+                onClick = { onSave(organization, role, education) },
             ) { Text("Add") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
@@ -401,6 +425,7 @@ private fun RecordCard(text: String, timestamp: Long, onDelete: () -> Unit, stat
 }
 
 private enum class RecordKind(val title: String, val hint: String) {
+    FACT("Add background", "A fact worth remembering about them"),
     CAPABILITY("Add capability or resource", "What could this person help with?"),
     NEED("Add need or goal", "What are they trying to solve or achieve?"),
     INTERACTION("Add interaction", "What did you discuss?"),

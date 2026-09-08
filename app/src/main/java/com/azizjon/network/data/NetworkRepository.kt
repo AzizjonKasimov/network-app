@@ -21,12 +21,14 @@ data class NetworkSnapshot(
     val needs: List<NeedEntity> = emptyList(),
     val capabilities: List<CapabilityEntity> = emptyList(),
     val affiliations: List<AffiliationEntity> = emptyList(),
+    val facts: List<FactEntity> = emptyList(),
 ) {
     fun person(id: Long): PersonEntity? = people.firstOrNull { it.id == id }
     fun interactionsFor(personId: Long): List<InteractionEntity> = interactions.filter { it.personId == personId }
     fun needsFor(personId: Long): List<NeedEntity> = needs.filter { it.personId == personId }
     fun capabilitiesFor(personId: Long): List<CapabilityEntity> = capabilities.filter { it.personId == personId }
     fun affiliationsFor(personId: Long): List<AffiliationEntity> = affiliations.filter { it.personId == personId }
+    fun factsFor(personId: Long): List<FactEntity> = facts.filter { it.personId == personId }
 
     /** Positions the person still holds, current ones first for display. */
     fun currentAffiliationsFor(personId: Long): List<AffiliationEntity> =
@@ -34,7 +36,7 @@ data class NetworkSnapshot(
 
     /** A one-line summary of where someone works now, for cards and lists. */
     fun affiliationSummary(personId: Long): String =
-        currentAffiliationsFor(personId).joinToString(" · ") { it.label }
+        currentAffiliationsFor(personId).filterNot { it.isEducation }.joinToString(" · ") { it.label }
 }
 
 class NetworkRepository(private val dao: NetworkDao) {
@@ -44,8 +46,17 @@ class NetworkRepository(private val dao: NetworkDao) {
         dao.observeNeeds(),
         dao.observeCapabilities(),
         dao.observeAffiliations(),
-    ) { people, interactions, needs, capabilities, affiliations ->
-        NetworkSnapshot(people, interactions, needs, capabilities, affiliations)
+        dao.observeFacts(),
+    ) { values ->
+        @Suppress("UNCHECKED_CAST")
+        NetworkSnapshot(
+            people = values[0] as List<PersonEntity>,
+            interactions = values[1] as List<InteractionEntity>,
+            needs = values[2] as List<NeedEntity>,
+            capabilities = values[3] as List<CapabilityEntity>,
+            affiliations = values[4] as List<AffiliationEntity>,
+            facts = values[5] as List<FactEntity>,
+        )
     }
 
     suspend fun savePerson(draft: PersonDraft): Long {
@@ -85,7 +96,20 @@ class NetworkRepository(private val dao: NetworkDao) {
         dao.touchPerson(personId, now)
     }
 
-    suspend fun addAffiliation(personId: Long, organization: String, role: String) {
+    suspend fun addFact(personId: Long, text: String) {
+        val clean = text.trim()
+        require(clean.isNotBlank()) { "A background fact is required" }
+        val now = System.currentTimeMillis()
+        dao.insertFact(FactEntity(personId = personId, text = clean, lastConfirmedAt = now, createdAt = now))
+        dao.touchPerson(personId, now)
+    }
+
+    suspend fun deleteFact(item: FactEntity) {
+        dao.deleteFact(item.id)
+        dao.touchPerson(item.personId, System.currentTimeMillis())
+    }
+
+    suspend fun addAffiliation(personId: Long, organization: String, role: String, education: Boolean = false) {
         val cleanOrganization = organization.trim()
         val cleanRole = role.trim()
         require(cleanOrganization.isNotBlank() || cleanRole.isNotBlank()) {
@@ -99,6 +123,7 @@ class NetworkRepository(private val dao: NetworkDao) {
                 role = cleanRole,
                 lastConfirmedAt = now,
                 createdAt = now,
+                kind = if (education) AffiliationEntity.KIND_EDUCATION else AffiliationEntity.KIND_WORK,
             ),
         )
         dao.touchPerson(personId, now)
@@ -147,6 +172,7 @@ class NetworkRepository(private val dao: NetworkDao) {
         needs = dao.allNeeds(),
         capabilities = dao.allCapabilities(),
         affiliations = dao.allAffiliations(),
+        facts = dao.allFacts(),
     )
 
     suspend fun replaceAll(snapshot: NetworkSnapshot) = dao.replaceAll(
@@ -155,5 +181,6 @@ class NetworkRepository(private val dao: NetworkDao) {
         needs = snapshot.needs,
         capabilities = snapshot.capabilities,
         affiliations = snapshot.affiliations,
+        facts = snapshot.facts,
     )
 }

@@ -2,11 +2,13 @@ package com.azizjon.network.backup
 
 import com.azizjon.network.data.AffiliationEntity
 import com.azizjon.network.data.CapabilityEntity
+import com.azizjon.network.data.FactEntity
 import com.azizjon.network.data.InteractionEntity
 import com.azizjon.network.data.NeedEntity
 import com.azizjon.network.data.NetworkSnapshot
 import com.azizjon.network.data.PersonEntity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -87,11 +89,34 @@ class EncryptedBackupCodecTest {
 
         val restored = EncryptedBackupCodec.snapshotFromJson(EncryptedBackupCodec.snapshotToJson(snapshot))
 
-        assertEquals(2, restored.affiliations.size)
+        assertEquals(3, restored.affiliations.size)
         assertEquals(
-            listOf("Northwind Labs" to true, "Former Co" to false),
+            listOf("Northwind Labs" to true, "Former Co" to false, "Sample University" to false),
             restored.affiliations.map { it.organization to it.current },
         )
+        assertTrue(restored.affiliations.single { it.organization == "Sample University" }.isEducation)
+        assertEquals("Built a widely used sample app", restored.facts.single().text)
+    }
+
+    @Test
+    fun backupsWrittenBeforeBackgroundFactsRestoreWithNone() {
+        // Nothing to rebuild: earlier versions had no way to record one.
+        val v3 = JSONObject()
+            .put("schemaVersion", 3)
+            .put("people", JSONArray().put(JSONObject()
+                .put("id", 1).put("name", "Legacy Person").put("createdAt", 1).put("updatedAt", 2)))
+            .put("interactions", JSONArray())
+            .put("needs", JSONArray())
+            .put("capabilities", JSONArray())
+            .put("affiliations", JSONArray().put(JSONObject()
+                .put("id", 5).put("personId", 1).put("organization", "Legacy Corp").put("role", "Engineer")
+                .put("current", true).put("lastConfirmedAt", 3).put("createdAt", 4)))
+
+        val restored = EncryptedBackupCodec.snapshotFromJson(v3.toString())
+
+        assertTrue(restored.facts.isEmpty())
+        // A position stored before the work/education split is work.
+        assertFalse(restored.affiliations.single().isEducation)
     }
 
     private fun sampleSnapshot(): NetworkSnapshot {
@@ -106,7 +131,12 @@ class EncryptedBackupCodecTest {
             affiliations = listOf(
                 AffiliationEntity(5, 1, "Northwind Labs", "CEO", current = true, lastConfirmedAt = 9, createdAt = 10),
                 AffiliationEntity(6, 1, "Former Co", "Engineer", current = false, lastConfirmedAt = 11, createdAt = 12),
+                AffiliationEntity(
+                    7, 1, "Sample University", "PhD", current = false, lastConfirmedAt = 13, createdAt = 14,
+                    kind = AffiliationEntity.KIND_EDUCATION,
+                ),
             ),
+            facts = listOf(FactEntity(8, 1, "Built a widely used sample app", 15, 16, sourceInteractionId = 2)),
         )
     }
 }

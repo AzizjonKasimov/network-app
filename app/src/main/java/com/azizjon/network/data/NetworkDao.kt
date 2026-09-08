@@ -26,6 +26,9 @@ abstract class NetworkDao {
     @Query("SELECT * FROM affiliations ORDER BY current DESC, lastConfirmedAt DESC, id DESC")
     abstract fun observeAffiliations(): Flow<List<AffiliationEntity>>
 
+    @Query("SELECT * FROM facts ORDER BY lastConfirmedAt DESC, id DESC")
+    abstract fun observeFacts(): Flow<List<FactEntity>>
+
     @Query("SELECT * FROM people WHERE id = :id LIMIT 1")
     abstract suspend fun person(id: Long): PersonEntity?
 
@@ -43,6 +46,9 @@ abstract class NetworkDao {
 
     @Query("SELECT * FROM affiliations WHERE id = :id LIMIT 1")
     protected abstract suspend fun affiliation(id: Long): AffiliationEntity?
+
+    @Query("SELECT * FROM facts WHERE id = :id LIMIT 1")
+    protected abstract suspend fun fact(id: Long): FactEntity?
 
     @Insert
     protected abstract suspend fun insertPerson(person: PersonEntity): Long
@@ -101,6 +107,15 @@ abstract class NetworkDao {
 
     @Query("DELETE FROM affiliations WHERE id = :id")
     abstract suspend fun deleteAffiliation(id: Long)
+
+    @Insert
+    abstract suspend fun insertFact(fact: FactEntity): Long
+
+    @Update
+    protected abstract suspend fun updateFact(fact: FactEntity)
+
+    @Query("DELETE FROM facts WHERE id = :id")
+    abstract suspend fun deleteFact(id: Long)
 
     @Query("UPDATE people SET updatedAt = :updatedAt WHERE id = :personId")
     abstract suspend fun touchPerson(personId: Long, updatedAt: Long)
@@ -171,6 +186,18 @@ abstract class NetworkDao {
                     lastConfirmedAt = proposal.occurredAt,
                     createdAt = now,
                     sourceInteractionId = auditId,
+                    kind = if (addition.education) AffiliationEntity.KIND_EDUCATION else AffiliationEntity.KIND_WORK,
+                ),
+            )
+        }
+        proposal.newFacts.filter { it.selected }.forEach { addition ->
+            insertFact(
+                FactEntity(
+                    personId = personId,
+                    text = addition.text.trim(),
+                    lastConfirmedAt = proposal.occurredAt,
+                    createdAt = now,
+                    sourceInteractionId = auditId,
                 ),
             )
         }
@@ -214,8 +241,15 @@ abstract class NetworkDao {
                     role = edit.role.trim(),
                     current = edit.current,
                     lastConfirmedAt = edit.lastConfirmedAt,
+                    kind = if (edit.education) AffiliationEntity.KIND_EDUCATION else AffiliationEntity.KIND_WORK,
                 ),
             )
+        }
+        proposal.factEdits.filter { it.selected }.forEach { edit ->
+            val existing = fact(edit.id)
+                ?: throw IllegalArgumentException("A background fact selected for editing no longer exists")
+            require(existing.personId == personId) { "A background fact belongs to a different person" }
+            updateFact(existing.copy(text = edit.text.trim(), lastConfirmedAt = edit.lastConfirmedAt))
         }
         return AiWriteResult(personId = personId, auditInteractionId = auditId)
     }
@@ -235,6 +269,9 @@ abstract class NetworkDao {
     @Query("SELECT * FROM affiliations ORDER BY id")
     abstract suspend fun allAffiliations(): List<AffiliationEntity>
 
+    @Query("SELECT * FROM facts ORDER BY id")
+    abstract suspend fun allFacts(): List<FactEntity>
+
     @Query("DELETE FROM interactions")
     protected abstract suspend fun clearInteractions()
 
@@ -246,6 +283,9 @@ abstract class NetworkDao {
 
     @Query("DELETE FROM affiliations")
     protected abstract suspend fun clearAffiliations()
+
+    @Query("DELETE FROM facts")
+    protected abstract suspend fun clearFacts()
 
     @Query("DELETE FROM people")
     protected abstract suspend fun clearPeople()
@@ -265,6 +305,9 @@ abstract class NetworkDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     protected abstract suspend fun restoreAffiliations(affiliations: List<AffiliationEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    protected abstract suspend fun restoreFacts(facts: List<FactEntity>)
+
     @Transaction
     open suspend fun replaceAll(
         people: List<PersonEntity>,
@@ -272,17 +315,20 @@ abstract class NetworkDao {
         needs: List<NeedEntity>,
         capabilities: List<CapabilityEntity>,
         affiliations: List<AffiliationEntity>,
+        facts: List<FactEntity>,
     ) {
         clearInteractions()
         clearNeeds()
         clearCapabilities()
         clearAffiliations()
+        clearFacts()
         clearPeople()
         restorePeople(people)
         restoreInteractions(interactions)
         restoreNeeds(needs)
         restoreCapabilities(capabilities)
         restoreAffiliations(affiliations)
+        restoreFacts(facts)
     }
 
     private fun validateProposal(proposal: AiWriteProposal, now: Long) {
@@ -312,6 +358,15 @@ abstract class NetworkDao {
         proposal.newNeeds.filter { it.selected }.forEach { validateRecordText(it.text) }
         proposal.newCapabilities.filter { it.selected }.forEach { validateRecordText(it.text) }
         proposal.newAffiliations.filter { it.selected }.forEach { validateAffiliation(it.organization, it.role) }
+        proposal.newFacts.filter { it.selected }.forEach { validateRecordText(it.text) }
+        require(proposal.factEdits.filter { it.selected }.map { it.id }.distinct().size == proposal.factEdits.count { it.selected }) {
+            "The assistant proposed the same background fact more than once"
+        }
+        proposal.factEdits.filter { it.selected }.forEach { edit ->
+            require(edit.id > 0) { "A background fact ID is invalid" }
+            validateRecordText(edit.text)
+            require(edit.lastConfirmedAt in 1..(now + 5 * 60_000L)) { "A background fact date is invalid" }
+        }
         require(proposal.affiliationEdits.filter { it.selected }.map { it.id }.distinct().size == proposal.affiliationEdits.count { it.selected }) {
             "The assistant proposed the same position more than once"
         }

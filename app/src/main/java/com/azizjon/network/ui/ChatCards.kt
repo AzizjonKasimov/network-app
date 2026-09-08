@@ -33,6 +33,7 @@ import com.azizjon.network.ai.TargetChoiceState
 import com.azizjon.network.data.AiAffiliationAdd
 import com.azizjon.network.data.AiAffiliationEdit
 import com.azizjon.network.data.AiCapabilityEdit
+import com.azizjon.network.data.AiFactEdit
 import com.azizjon.network.data.AiInteractionEdit
 import com.azizjon.network.data.AiNeedEdit
 import com.azizjon.network.data.AiWriteProposal
@@ -163,6 +164,24 @@ fun ProposalCard(
                 }
             }
 
+            ProposalHeading("Background", proposal.newFacts.size)
+            proposal.newFacts.forEachIndexed { index, item ->
+                SelectableTextEdit(item.selected, "New background fact", "", item.text, { selected ->
+                    onUpdate(proposal.copy(newFacts = proposal.newFacts.replace(index, item.copy(selected = selected))))
+                }, { value ->
+                    onUpdate(proposal.copy(newFacts = proposal.newFacts.replace(index, item.copy(text = value))))
+                })
+            }
+
+            ProposalHeading("Background changes", proposal.factEdits.size)
+            proposal.factEdits.forEachIndexed { index, edit ->
+                val before = snapshot.factsFor(proposal.targetPersonId ?: -1)
+                    .firstOrNull { it.id == edit.id }?.text.orEmpty()
+                FactEditCard(edit, before) { changed ->
+                    onUpdate(proposal.copy(factEdits = proposal.factEdits.replace(index, changed)))
+                }
+            }
+
             ProposalHeading("New needs", proposal.newNeeds.size)
             proposal.newNeeds.forEachIndexed { index, item ->
                 SelectableTextEdit(item.selected, "New need", "", item.text, { selected ->
@@ -231,6 +250,8 @@ private fun AppliedProposalSummary(proposal: AiWriteProposal) {
             add("Position: " + listOf(it.role, it.organization).filter(String::isNotBlank).joinToString(" at "))
         }
         proposal.affiliationEdits.filter { it.selected }.forEach { add("Position #${it.id} updated") }
+        proposal.newFacts.filter { it.selected }.forEach { add("Background: ${it.text}") }
+        proposal.factEdits.filter { it.selected }.forEach { add("Background #${it.id} updated") }
         proposal.newNeeds.filter { it.selected }.forEach { add("Need: ${it.text}") }
         proposal.newCapabilities.filter { it.selected }.forEach { add("Capability: ${it.text}") }
         proposal.interactionEdits.filter { it.selected }.forEach { add("Interaction #${it.id} edited") }
@@ -366,9 +387,29 @@ private fun AffiliationAddCard(item: AiAffiliationAdd, onChange: (AiAffiliationA
                     Switch(item.current, { onChange(item.copy(current = it)) })
                     Text(if (item.current) "Current" else "Past", modifier = Modifier.padding(start = 8.dp))
                 }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(item.education, { onChange(item.copy(education = it)) })
+                    Text(
+                        if (item.education) "Studied here" else "Worked here",
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
             }
         }
     }
+}
+
+@Composable
+private fun FactEditCard(edit: AiFactEdit, before: String, onChange: (AiFactEdit) -> Unit) {
+    SelectableTextEdit(
+        edit.selected,
+        "Edit background #${edit.id}",
+        before,
+        edit.text,
+        { onChange(edit.copy(selected = it)) },
+        { onChange(edit.copy(text = it)) },
+    )
+    if (edit.selected) DateField("Last confirmed", edit.lastConfirmedAt) { onChange(edit.copy(lastConfirmedAt = it)) }
 }
 
 @Composable
@@ -398,6 +439,13 @@ private fun AffiliationEditCard(edit: AiAffiliationEdit, before: String, onChang
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Switch(edit.current, { onChange(edit.copy(current = it)) })
                     Text(if (edit.current) "Current" else "Past", modifier = Modifier.padding(start = 8.dp))
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(edit.education, { onChange(edit.copy(education = it)) })
+                    Text(
+                        if (edit.education) "Studied here" else "Worked here",
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
                 }
                 DateField("Last confirmed", edit.lastConfirmedAt) { onChange(edit.copy(lastConfirmedAt = it)) }
             }

@@ -53,7 +53,7 @@ object NetworkMatcher {
             snapshot.affiliationsFor(person.id).forEach { item ->
                 val text = if (item.current) item.label else "${item.label} (past)"
                 score(text, query, tokens, if (item.current) 5 else 2)?.let {
-                    add(SearchEvidence("Position", text, item.lastConfirmedAt, it))
+                    add(SearchEvidence(if (item.isEducation) "Education" else "Position", text, item.lastConfirmedAt, it))
                 }
             }
             snapshot.capabilitiesFor(person.id).forEach { item ->
@@ -65,6 +65,9 @@ object NetworkMatcher {
                 if (item.status == "active") {
                     score(item.text, query, tokens, 4)?.let { add(SearchEvidence("Need / goal", item.text, item.lastConfirmedAt, it)) }
                 }
+            }
+            snapshot.factsFor(person.id).forEach { item ->
+                score(item.text, query, tokens, 4)?.let { add(SearchEvidence("Background", item.text, item.lastConfirmedAt, it)) }
             }
             snapshot.interactionsFor(person.id).forEach { item ->
                 score(item.note, query, tokens, 3)?.let { add(SearchEvidence("Interaction", item.note, item.occurredAt, it)) }

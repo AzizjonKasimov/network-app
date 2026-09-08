@@ -48,6 +48,7 @@ data class AiAffiliationAdd(
     val organization: String,
     val role: String,
     val current: Boolean = true,
+    val education: Boolean = false,
     val selected: Boolean = true,
 )
 
@@ -56,6 +57,20 @@ data class AiAffiliationEdit(
     val organization: String,
     val role: String,
     val current: Boolean,
+    val education: Boolean,
+    val lastConfirmedAt: Long,
+    val selected: Boolean = true,
+)
+
+/** A background fact that is not a need, a capability, or a position. */
+data class AiFactAdd(
+    val text: String,
+    val selected: Boolean = true,
+)
+
+data class AiFactEdit(
+    val id: Long,
+    val text: String,
     val lastConfirmedAt: Long,
     val selected: Boolean = true,
 )
@@ -70,10 +85,12 @@ data class AiWriteProposal(
     val newNeeds: List<AiRecordAdd> = emptyList(),
     val newCapabilities: List<AiRecordAdd> = emptyList(),
     val newAffiliations: List<AiAffiliationAdd> = emptyList(),
+    val newFacts: List<AiFactAdd> = emptyList(),
     val interactionEdits: List<AiInteractionEdit> = emptyList(),
     val needEdits: List<AiNeedEdit> = emptyList(),
     val capabilityEdits: List<AiCapabilityEdit> = emptyList(),
     val affiliationEdits: List<AiAffiliationEdit> = emptyList(),
+    val factEdits: List<AiFactEdit> = emptyList(),
 )
 
 data class AiWriteResult(

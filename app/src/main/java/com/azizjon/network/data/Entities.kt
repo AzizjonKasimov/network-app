@@ -147,6 +147,8 @@ data class AffiliationEntity(
     val lastConfirmedAt: Long,
     val createdAt: Long,
     val sourceInteractionId: Long? = null,
+    /** [KIND_WORK] or [KIND_EDUCATION]. Studying somewhere is not a job. */
+    @ColumnInfo(defaultValue = "'work'") val kind: String = KIND_WORK,
 ) {
     /** "Role at Organization", collapsing gracefully when only one is known. */
     val label: String
@@ -155,4 +157,46 @@ data class AffiliationEntity(
             role.isBlank() -> organization
             else -> "$role at $organization"
         }
+
+    val isEducation: Boolean get() = kind == KIND_EDUCATION
+
+    companion object {
+        const val KIND_WORK = "work"
+        const val KIND_EDUCATION = "education"
+    }
 }
+
+/**
+ * A stated fact about a person that is not a need, a capability, or a position.
+ *
+ * Without this, anything that did not fit those three shapes survived only
+ * inside the verbatim interaction text - findable, but not something the user
+ * could see on the person, correct, re-date, or have cited on its own. Keep it
+ * deliberately plain: one sentence of stored fact, dated, with provenance.
+ */
+@Entity(
+    tableName = "facts",
+    foreignKeys = [
+        ForeignKey(
+            entity = PersonEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["personId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+        ForeignKey(
+            entity = InteractionEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["sourceInteractionId"],
+            onDelete = ForeignKey.SET_NULL,
+        ),
+    ],
+    indices = [Index("personId"), Index("sourceInteractionId")],
+)
+data class FactEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val personId: Long,
+    val text: String,
+    val lastConfirmedAt: Long,
+    val createdAt: Long,
+    val sourceInteractionId: Long? = null,
+)

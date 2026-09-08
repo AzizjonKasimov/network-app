@@ -14,8 +14,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         NeedEntity::class,
         CapabilityEntity::class,
         AffiliationEntity::class,
+        FactEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class NetworkDatabase : RoomDatabase() {
@@ -29,7 +30,35 @@ abstract class NetworkDatabase : RoomDatabase() {
                 context.applicationContext,
                 NetworkDatabase::class.java,
                 "network.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
+        }
+
+        /**
+         * Gives stated facts somewhere to live, and separates study from work.
+         *
+         * Existing positions are all work, which is what they were recorded as,
+         * so the added column simply defaults.
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE facts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        personId INTEGER NOT NULL,
+                        text TEXT NOT NULL,
+                        lastConfirmedAt INTEGER NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        sourceInteractionId INTEGER,
+                        FOREIGN KEY(personId) REFERENCES people(id) ON UPDATE NO ACTION ON DELETE CASCADE,
+                        FOREIGN KEY(sourceInteractionId) REFERENCES interactions(id) ON UPDATE NO ACTION ON DELETE SET NULL
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL("CREATE INDEX index_facts_personId ON facts(personId)")
+                database.execSQL("CREATE INDEX index_facts_sourceInteractionId ON facts(sourceInteractionId)")
+                database.execSQL("ALTER TABLE affiliations ADD COLUMN kind TEXT NOT NULL DEFAULT 'work'")
+            }
         }
 
         /**

@@ -2,6 +2,7 @@ package com.azizjon.network.backup
 
 import com.azizjon.network.data.AffiliationEntity
 import com.azizjon.network.data.CapabilityEntity
+import com.azizjon.network.data.FactEntity
 import com.azizjon.network.data.InteractionEntity
 import com.azizjon.network.data.NeedEntity
 import com.azizjon.network.data.NetworkSnapshot
@@ -91,13 +92,14 @@ object EncryptedBackupCodec {
     }
 
     private fun NetworkSnapshot.toJson(): JSONObject = JSONObject()
-        .put("schemaVersion", 3)
+        .put("schemaVersion", 4)
         .put("exportedAt", System.currentTimeMillis())
         .put("people", JSONArray().apply { people.forEach { put(it.toJson()) } })
         .put("interactions", JSONArray().apply { interactions.forEach { put(it.toJson()) } })
         .put("needs", JSONArray().apply { needs.forEach { put(it.toJson()) } })
         .put("capabilities", JSONArray().apply { capabilities.forEach { put(it.toJson()) } })
         .put("affiliations", JSONArray().apply { affiliations.forEach { put(it.toJson()) } })
+        .put("facts", JSONArray().apply { facts.forEach { put(it.toJson()) } })
 
     internal fun snapshotToJson(snapshot: NetworkSnapshot): String = snapshot.toJson().toString()
 
@@ -125,6 +127,12 @@ object EncryptedBackupCodec {
     private fun AffiliationEntity.toJson() = JSONObject()
         .put("id", id).put("personId", personId)
         .put("organization", organization).put("role", role).put("current", current)
+        .put("kind", kind)
+        .put("lastConfirmedAt", lastConfirmedAt).put("createdAt", createdAt)
+        .put("sourceInteractionId", sourceInteractionId ?: JSONObject.NULL)
+
+    private fun FactEntity.toJson() = JSONObject()
+        .put("id", id).put("personId", personId).put("text", text)
         .put("lastConfirmedAt", lastConfirmedAt).put("createdAt", createdAt)
         .put("sourceInteractionId", sourceInteractionId ?: JSONObject.NULL)
 
@@ -132,7 +140,7 @@ object EncryptedBackupCodec {
 
     private fun snapshotFromJson(json: JSONObject): NetworkSnapshot {
         val schemaVersion = json.optInt("schemaVersion")
-        if (schemaVersion !in 1..3) throw BackupCodecException("Unsupported data schema")
+        if (schemaVersion !in 1..4) throw BackupCodecException("Unsupported data schema")
         return NetworkSnapshot(
             people = json.getJSONArray("people").mapObjects { item ->
                 PersonEntity(
@@ -175,6 +183,18 @@ object EncryptedBackupCodec {
                 )
             },
             affiliations = readAffiliations(json, schemaVersion),
+            // Backups older than this simply had nowhere to record a background
+            // fact, so an empty list is the correct reading.
+            facts = json.optJSONArray("facts").orEmpty().mapObjects { item ->
+                FactEntity(
+                    id = item.getLong("id"),
+                    personId = item.getLong("personId"),
+                    text = item.getString("text"),
+                    lastConfirmedAt = item.getLong("lastConfirmedAt"),
+                    createdAt = item.getLong("createdAt"),
+                    sourceInteractionId = item.optionalLong("sourceInteractionId"),
+                )
+            },
         )
     }
 
@@ -197,6 +217,9 @@ object EncryptedBackupCodec {
                     lastConfirmedAt = item.getLong("lastConfirmedAt"),
                     createdAt = item.getLong("createdAt"),
                     sourceInteractionId = item.optionalLong("sourceInteractionId"),
+                    kind = item.optString("kind", AffiliationEntity.KIND_WORK)
+                        .takeIf { it == AffiliationEntity.KIND_EDUCATION }
+                        ?: AffiliationEntity.KIND_WORK,
                 )
             }
         }
@@ -244,6 +267,11 @@ object EncryptedBackupCodec {
             snapshot.affiliations.any {
                 it.id <= 0 || it.personId !in personIds ||
                     (it.organization.isBlank() && it.role.isBlank()) ||
+                    (it.sourceInteractionId != null && it.sourceInteractionId !in interactionIds)
+            } ||
+            snapshot.facts.map { it.id }.toSet().size != snapshot.facts.size ||
+            snapshot.facts.any {
+                it.id <= 0 || it.personId !in personIds || it.text.isBlank() ||
                     (it.sourceInteractionId != null && it.sourceInteractionId !in interactionIds)
             }
         ) {

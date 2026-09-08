@@ -83,11 +83,13 @@ fun NetworkApp(viewModel: NetworkViewModel) {
                     onAddNeed = viewModel::addNeed,
                     onAddCapability = viewModel::addCapability,
                     onAddAffiliation = viewModel::addAffiliation,
+                    onAddFact = viewModel::addFact,
                     onDeleteInteraction = viewModel::deleteInteraction,
                     onDeleteNeed = viewModel::deleteNeed,
                     onDeleteCapability = viewModel::deleteCapability,
                     onDeleteAffiliation = viewModel::deleteAffiliation,
                     onSetAffiliationCurrent = viewModel::setAffiliationCurrent,
+                    onDeleteFact = viewModel::deleteFact,
                 )
             } else {
                 when (section) {

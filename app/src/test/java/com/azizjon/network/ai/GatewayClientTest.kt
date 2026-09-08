@@ -1,6 +1,7 @@
 package com.azizjon.network.ai
 
 import com.azizjon.network.data.CapabilityEntity
+import com.azizjon.network.data.FactEntity
 import com.azizjon.network.data.InteractionEntity
 import com.azizjon.network.data.NeedEntity
 import com.azizjon.network.data.NetworkSnapshot
@@ -50,8 +51,8 @@ class GatewayClientTest {
         assertEquals(
             listOf(
                 "occurredAt", "interactionOnlyFacts", "profilePatches", "newNeeds", "newCapabilities",
-                "newAffiliations", "interactionEdits", "needEdits", "capabilityEdits", "affiliationEdits",
-                "assistantMessage", "caveat", "warning",
+                "newAffiliations", "newFacts", "interactionEdits", "needEdits", "capabilityEdits",
+                "affiliationEdits", "factEdits", "assistantMessage", "caveat", "warning",
             ),
             requiredNames,
         )
@@ -328,10 +329,12 @@ class GatewayClientTest {
                 "newAffiliations",
                 JSONArray()
                     .put(
-                        JSONObject().put("organization", "Northwind Labs").put("role", "CEO").put("current", true),
+                        JSONObject().put("organization", "Northwind Labs").put("role", "CEO")
+                            .put("current", true).put("education", false),
                     )
                     .put(
-                        JSONObject().put("organization", "Sample Ventures").put("role", "CTO").put("current", true),
+                        JSONObject().put("organization", "Sample Ventures").put("role", "CTO")
+                            .put("current", true).put("education", false),
                     ),
             )
             .put("caveat", "Both concurrent positions were recorded separately.")
@@ -393,6 +396,85 @@ class GatewayClientTest {
     }
 
     @Test
+    fun statedFactsWithNowhereElseToGoBecomeBackgroundRecords() {
+        // A user count and a conference attendance are neither a need, a
+        // capability, nor a position. Before background records existed they
+        // survived only inside the verbatim note, so they could not be seen on
+        // the person, corrected, or cited on their own.
+        val payload = emptyProposalPayload()
+            .put(
+                "newFacts",
+                JSONArray()
+                    .put(JSONObject().put("text", "The sample app has over two million users."))
+                    .put(JSONObject().put("text", "Attended a synthetic conference in 2015.")),
+            )
+
+        val reply = GatewayClient.parseProposalResponse(
+            responseBody = wrap(payload),
+            rawInput = "Synthetic background note.",
+            targetName = "Sample Person",
+            person = null,
+            snapshot = NetworkSnapshot(),
+            now = Instant.parse("2026-09-08T01:00:00Z"),
+        )
+
+        assertEquals(2, reply.proposal.newFacts.size)
+        assertTrue(reply.proposal.interactionOnlyFacts.isEmpty())
+    }
+
+    @Test
+    fun studyIsRecordedAsEducationRatherThanAJob() {
+        val payload = emptyProposalPayload().put(
+            "newAffiliations",
+            JSONArray().put(
+                JSONObject().put("organization", "Sample University").put("role", "MS and PhD")
+                    .put("current", false).put("education", true),
+            ),
+        )
+
+        val reply = GatewayClient.parseProposalResponse(
+            responseBody = wrap(payload),
+            rawInput = "Synthetic education note.",
+            targetName = "Sample Person",
+            person = null,
+            snapshot = NetworkSnapshot(),
+            now = Instant.parse("2026-09-08T01:00:00Z"),
+        )
+
+        val position = reply.proposal.newAffiliations.single()
+        assertTrue(position.education)
+        assertFalse(position.current)
+        assertEquals("Sample University", position.organization)
+    }
+
+    @Test
+    fun backgroundFactEditsMustReferenceAStoredFactForThatPerson() {
+        val person = person(1, "Selected Person")
+        val snapshot = NetworkSnapshot(
+            people = listOf(person),
+            facts = listOf(FactEntity(id = 91, personId = 1, text = "Stored background", lastConfirmedAt = 5, createdAt = 5)),
+        )
+        val payload = emptyProposalPayload().put(
+            "factEdits",
+            JSONArray().put(
+                JSONObject().put("id", 999).put("text", "Rewritten")
+                    .put("lastConfirmedAt", "2026-09-08T00:00:00Z"),
+            ),
+        )
+
+        assertThrows(GatewayException::class.java) {
+            GatewayClient.parseProposalResponse(
+                responseBody = wrap(payload),
+                rawInput = "Synthetic note.",
+                targetName = person.name,
+                person = person,
+                snapshot = snapshot,
+                now = Instant.parse("2026-09-08T01:00:00Z"),
+            )
+        }
+    }
+
+    @Test
     fun gatewayFailuresHaveSafeActionableMessages() {
         assertTrue(GatewayClient.httpFailureReason(401).contains("access token"))
         assertTrue(
@@ -428,10 +510,12 @@ class GatewayClientTest {
         .put("newNeeds", JSONArray())
         .put("newCapabilities", JSONArray())
         .put("newAffiliations", JSONArray())
+        .put("newFacts", JSONArray())
         .put("interactionEdits", JSONArray())
         .put("needEdits", JSONArray())
         .put("capabilityEdits", JSONArray())
         .put("affiliationEdits", JSONArray())
+        .put("factEdits", JSONArray())
         .put("assistantMessage", "Prepared changes.")
         .put("caveat", JSONObject.NULL)
         .put("warning", JSONObject.NULL)

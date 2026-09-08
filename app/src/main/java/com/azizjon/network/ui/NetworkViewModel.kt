@@ -21,6 +21,7 @@ import com.azizjon.network.backup.BackupStatus
 import com.azizjon.network.backup.GitHubBackupConfig
 import com.azizjon.network.data.AffiliationEntity
 import com.azizjon.network.data.CapabilityEntity
+import com.azizjon.network.data.FactEntity
 import com.azizjon.network.data.InteractionEntity
 import com.azizjon.network.data.NeedEntity
 import com.azizjon.network.data.NetworkSnapshot
@@ -136,9 +137,13 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         repository.addCapability(personId, text)
     }
 
-    fun addAffiliation(personId: Long, organization: String, role: String) = mutate {
-        repository.addAffiliation(personId, organization, role)
+    fun addAffiliation(personId: Long, organization: String, role: String, education: Boolean) = mutate {
+        repository.addAffiliation(personId, organization, role, education)
     }
+
+    fun addFact(personId: Long, text: String) = mutate { repository.addFact(personId, text) }
+
+    fun deleteFact(item: FactEntity) = mutate { repository.deleteFact(item) }
 
     fun setAffiliationCurrent(item: AffiliationEntity, current: Boolean) = mutate {
         repository.setAffiliationCurrent(item, current)
