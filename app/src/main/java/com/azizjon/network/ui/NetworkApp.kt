@@ -1,7 +1,6 @@
 package com.azizjon.network.ui
 
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -24,8 +23,8 @@ import com.azizjon.network.update.UpdatePrompt
 import com.azizjon.network.update.rememberUpdatePromptState
 
 private enum class AppSection(val label: String) {
+    CHAT("Assistant"),
     PEOPLE("People"),
-    SEARCH("Match"),
     SETTINGS("Settings"),
 }
 
@@ -33,14 +32,14 @@ private enum class AppSection(val label: String) {
 fun NetworkApp(viewModel: NetworkViewModel) {
     val snapshot by viewModel.snapshot.collectAsStateWithLifecycle()
     val backupState by viewModel.backupState.collectAsStateWithLifecycle()
-    val aiDraft by viewModel.aiDraft.collectAsStateWithLifecycle()
-    val aiCaptureState by viewModel.aiCaptureState.collectAsStateWithLifecycle()
-    val aiSearchState by viewModel.aiSearchState.collectAsStateWithLifecycle()
+    val chat by viewModel.chat.collectAsStateWithLifecycle()
+    val composerDraft by viewModel.composerDraft.collectAsStateWithLifecycle()
+    val searchConsentRequest by viewModel.searchConsentRequest.collectAsStateWithLifecycle()
     val gatewaySettingsState by viewModel.gatewaySettingsState.collectAsStateWithLifecycle()
     val speechFallbackAllowed by viewModel.speechFallbackAllowed.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
-    var section by rememberSaveable { mutableStateOf(AppSection.PEOPLE) }
+    var section by rememberSaveable { mutableStateOf(AppSection.CHAT) }
     var selectedPersonId by rememberSaveable { mutableStateOf<Long?>(null) }
     val updateState = rememberUpdatePromptState(viewModel::showMessage)
 
@@ -89,31 +88,29 @@ fun NetworkApp(viewModel: NetworkViewModel) {
                 )
             } else {
                 when (section) {
+                    AppSection.CHAT -> ChatScreen(
+                        chat = chat,
+                        snapshot = snapshot,
+                        draft = composerDraft,
+                        searchConsentRequest = searchConsentRequest,
+                        speechFallbackAllowed = speechFallbackAllowed,
+                        onDraftChange = viewModel::updateComposerDraft,
+                        onSend = viewModel::sendChatMessage,
+                        onAllowSpeechFallback = viewModel::allowSpeechFallbackForSession,
+                        onOpenPerson = { selectedPersonId = it },
+                        onChooseTarget = viewModel::chooseChatTarget,
+                        onChangeProposalTarget = viewModel::changeChatProposalTarget,
+                        onUpdateProposal = viewModel::updateChatProposal,
+                        onDiscardProposal = viewModel::discardChatProposal,
+                        onApplyProposal = viewModel::applyChatProposal,
+                        onConfirmSearchConsent = viewModel::confirmSearchConsent,
+                        onDismissSearchConsent = viewModel::dismissSearchConsent,
+                        onNewChat = viewModel::startNewChat,
+                    )
                     AppSection.PEOPLE -> PeopleScreen(
                         snapshot = snapshot,
-                        aiDraft = aiDraft,
-                        aiCaptureState = aiCaptureState,
                         onOpenPerson = { selectedPersonId = it },
                         onSavePerson = viewModel::savePerson,
-                        onAiDraftChange = viewModel::updateAiDraft,
-                        speechFallbackAllowed = speechFallbackAllowed,
-                        onAllowSpeechFallback = viewModel::allowSpeechFallbackForSession,
-                        onInterpretAiDraft = viewModel::interpretAiDraft,
-                        onChooseAiTarget = viewModel::chooseAiTarget,
-                        onChangeAiTarget = viewModel::changeAiProposalTarget,
-                        onUpdateAiProposal = viewModel::updateAiProposal,
-                        onCancelAiCapture = viewModel::cancelAiCapture,
-                        onApplyAiProposal = { viewModel.applyAiProposal { selectedPersonId = it } },
-                    )
-                    AppSection.SEARCH -> SearchScreen(
-                        snapshot = snapshot,
-                        aiSearchState = aiSearchState,
-                        gatewaySettingsState = gatewaySettingsState,
-                        onOpenPerson = { selectedPersonId = it },
-                        onAcceptAiSearchConsent = viewModel::acceptAiSearchConsent,
-                        onSearchWithAi = viewModel::searchWithAi,
-                        speechFallbackAllowed = speechFallbackAllowed,
-                        onAllowSpeechFallback = viewModel::allowSpeechFallbackForSession,
                     )
                     AppSection.SETTINGS -> SettingsScreen(
                         backupState = backupState,

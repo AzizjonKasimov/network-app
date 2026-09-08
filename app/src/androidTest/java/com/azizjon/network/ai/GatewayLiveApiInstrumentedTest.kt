@@ -52,11 +52,12 @@ class GatewayLiveApiInstrumentedTest {
 
         // The capture path as the view model runs it: name the target, then propose.
         val target = liveStage("resolveTarget") {
-            client.resolveTarget(draft, now, ZoneOffset.UTC, "en-US")
+            client.resolveTarget(draft, emptyList(), now, ZoneOffset.UTC, "en-US")
         }
         assertEquals("Alex Rivera", target.targetName)
+        assertEquals(ChatIntent.CAPTURE, target.intent)
 
-        val proposal = liveStage("proposeChanges") {
+        val reply = liveStage("proposeChanges") {
             client.proposeChanges(
                 input = draft,
                 targetName = "Alex Rivera",
@@ -67,6 +68,8 @@ class GatewayLiveApiInstrumentedTest {
                 locale = "en-US",
             )
         }
+        val proposal = reply.proposal
+        assertTrue("Every reply needs a sentence for the chat", reply.assistantMessage.isNotBlank())
         assertEquals(draft, proposal.rawInput)
         assertEquals("Alex Rivera", proposal.targetName)
         assertTrue(
@@ -135,12 +138,45 @@ class GatewayLiveApiInstrumentedTest {
                 locale = "en-US",
             )
         }
-        assertEquals(person.id, fastProposal.targetPersonId)
+        assertEquals(person.id, fastProposal.proposal.targetPersonId)
 
-        val searchResults = liveStage("search") {
-            client.search("Who can build Kotlin prototypes?", snapshot)
+        // A correction typed into the chat revises the open proposal rather than
+        // starting a new capture. The revision must stay on the same person.
+        val refined = liveStage("proposeChanges (refinement)") {
+            client.proposeChanges(
+                input = "Also note that he is looking for a Compose testing mentor.",
+                targetName = person.name,
+                snapshot = snapshot,
+                person = person,
+                now = now,
+                zoneId = ZoneOffset.UTC,
+                locale = "en-US",
+                history = listOf(
+                    ChatTurn(ChatRole.USER, draft),
+                    ChatTurn(ChatRole.ASSISTANT, fastProposal.assistantMessage),
+                ),
+                previousProposal = fastProposal.proposal,
+            )
         }
-        assertTrue(searchResults.any { it.person.id == person.id && it.evidence.isNotEmpty() })
+        assertEquals(person.id, refined.proposal.targetPersonId)
+        assertEquals(
+            "A refinement must keep the original note verbatim",
+            fastProposal.proposal.rawInput,
+            refined.proposal.rawInput,
+        )
+
+        // A question routes to search instead of a write, with no target person.
+        val question = "Who can build Kotlin prototypes?"
+        val routed = liveStage("resolveTarget (search routing)") {
+            client.resolveTarget(question, emptyList(), now, ZoneOffset.UTC, "en-US")
+        }
+        assertEquals(ChatIntent.SEARCH, routed.intent)
+
+        val searchReply = liveStage("search") {
+            client.search(question, snapshot)
+        }
+        assertTrue(searchReply.assistantMessage.isNotBlank())
+        assertTrue(searchReply.results.any { it.person.id == person.id && it.evidence.isNotEmpty() })
     }
 
     private suspend fun <T> liveStage(name: String, block: suspend () -> T): T {

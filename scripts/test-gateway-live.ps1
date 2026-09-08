@@ -1,30 +1,24 @@
 [CmdletBinding()]
 param()
 
+# Opt-in live gateway smoke test.
+#
+# The token is never handled by this script. It is read at runtime from the
+# app's own encrypted preferences, so it must be saved once on the device via
+# Settings -> AI gateway. Nothing is pushed to the device and nothing is passed
+# through Gradle arguments, command text, or test reports.
+#
+# `connectedDebugAndroidTest` is deliberately NOT used: it uninstalls the app
+# when it finishes, which erases the saved token and forces it to be entered
+# again before every run. Installing and then driving `am instrument` directly
+# leaves both APKs in place, so the token survives.
+
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$envPath = Join-Path $projectRoot ".env"
 $localPropertiesPath = Join-Path $projectRoot "local.properties"
-$remoteEnvPath = "/data/local/tmp/network-app-gateway-live.env"
 
-if (-not (Test-Path -LiteralPath $envPath -PathType Leaf)) {
-    throw "Create $envPath with GATEWAY_TOKEN before running the live test."
-}
-
-$assignments = @(Get-Content -LiteralPath $envPath | ForEach-Object {
-    if ($_ -match "^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$") {
-        [pscustomobject]@{ Name = $Matches[1]; Value = $Matches[2].Trim().Trim('"').Trim("'") }
-    }
-})
-if ($assignments.Count -ne 1 -or $assignments[0].Name -ne "GATEWAY_TOKEN") {
-    throw ".env must contain only GATEWAY_TOKEN for this temporary on-device test."
-}
-$key = $assignments[0].Value
-if ($key.Length -lt 20 -or $key -notmatch "^[A-Za-z0-9_.-]+$") {
-    throw "GATEWAY_TOKEN is missing or malformed."
-}
-$key = $null
-$assignments = $null
+$testClass = "com.azizjon.network.ai.GatewayLiveApiInstrumentedTest"
+$testRunner = "com.azizjon.network.test/androidx.test.runner.AndroidJUnitRunner"
 
 $sdkLine = Get-Content -LiteralPath $localPropertiesPath |
     Where-Object { $_ -match "^sdk\.dir=" } |
@@ -40,24 +34,37 @@ if ($devices.Count -ne 1) {
 }
 $serial = $devices[0]
 
+Push-Location $projectRoot
 try {
-    & $adb -s $serial push $envPath $remoteEnvPath | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Could not stage the temporary live-test key file." }
-    & $adb -s $serial shell chmod 600 $remoteEnvPath
-    if ($LASTEXITCODE -ne 0) { throw "Could not protect the temporary live-test key file." }
+    & .\gradlew.bat installDebug installDebugAndroidTest --console=plain
+    if ($LASTEXITCODE -ne 0) { throw "Could not install the app and instrumentation APKs." }
 
-    Push-Location $projectRoot
-    try {
-        & .\gradlew.bat connectedDebugAndroidTest `
-            "-Pandroid.testInstrumentationRunnerArguments.class=com.azizjon.network.ai.GatewayLiveApiInstrumentedTest" `
-            "-Pandroid.testInstrumentationRunnerArguments.liveGateway=true" `
-            --console=plain
-        if ($LASTEXITCODE -ne 0) { throw "Live gateway instrumentation test failed." }
-    } finally {
-        Pop-Location
+    & $adb -s $serial logcat -c
+
+    Write-Host ""
+    Write-Host "Running the live gateway test with synthetic records..."
+    $output = & $adb -s $serial shell am instrument -w `
+        -e class $testClass `
+        -e liveGateway true `
+        $testRunner 2>&1
+    $report = ($output | Out-String)
+    Write-Host $report
+
+    if ($report -match "Save the gateway access token") {
+        throw "No access token is saved on $serial. Open the app, go to Settings -> AI gateway, paste the token, tap Save, then run this script again."
     }
+    if ($report -match "FAILURES!!!" -or $report -notmatch "OK \(") {
+        throw "Live gateway instrumentation test failed."
+    }
+
+    Write-Host "Stage timings:"
+    & $adb -s $serial logcat -d -s LiveGatewayTiming:I |
+        Select-String "took|failed" |
+        ForEach-Object { Write-Host "  $($_.Line)" }
 } finally {
-    & $adb -s $serial shell rm -f $remoteEnvPath | Out-Null
+    Pop-Location
 }
 
-Write-Host "Live gateway capture and search test passed; the temporary device token file was removed."
+Write-Host ""
+Write-Host "Live gateway routing, capture, refinement, and search passed."
+Write-Host "The app is still installed and the saved token was not touched."

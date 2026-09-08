@@ -50,7 +50,7 @@ class GatewayClientTest {
         assertEquals(
             listOf(
                 "occurredAt", "interactionOnlyFacts", "profilePatches", "newNeeds", "newCapabilities",
-                "interactionEdits", "needEdits", "capabilityEdits", "warning",
+                "interactionEdits", "needEdits", "capabilityEdits", "assistantMessage", "warning",
             ),
             requiredNames,
         )
@@ -115,7 +115,7 @@ class GatewayClientTest {
                 .put("uncertainty", "Profile evidence may be old.")),
         )
 
-        val result = GatewayClient.parseSearchResponse(wrap(validPayload), corpus).single()
+        val result = GatewayClient.parseSearchResponse(wrap(validPayload), corpus).results.single()
 
         assertEquals("Sample Person", result.person.name)
         assertEquals("profile:1", result.evidence.single().id)
@@ -171,7 +171,7 @@ class GatewayClientTest {
             now = Instant.parse("2026-08-26T01:00:00Z"),
         )
 
-        assertEquals(listOf("They prefer introductions by email."), result.interactionOnlyFacts)
+        assertEquals(listOf("They prefer introductions by email."), result.proposal.interactionOnlyFacts)
     }
 
     @Test
@@ -237,16 +237,25 @@ class GatewayClientTest {
 
     @Test
     fun targetResponseRejectsMultiPersonWarning() {
-        val payload = JSONObject().put("targetName", "").put("warning", "This note targets more than one person.")
+        val payload = JSONObject()
+            .put("intent", "capture")
+            .put("targetName", "")
+            .put("warning", "This note targets more than one person.")
 
         assertThrows(GatewayException::class.java) { GatewayClient.parseTargetResponse(wrap(payload)) }
     }
 
     @Test
     fun targetResponseReadsTheValidatedOutputObject() {
-        val payload = JSONObject().put("targetName", "Synthetic Alex").put("warning", JSONObject.NULL)
+        val payload = JSONObject()
+            .put("intent", "capture")
+            .put("targetName", "Synthetic Alex")
+            .put("warning", JSONObject.NULL)
 
-        assertEquals("Synthetic Alex", GatewayClient.parseTargetResponse(wrap(payload)).targetName)
+        val resolution = GatewayClient.parseTargetResponse(wrap(payload))
+
+        assertEquals("Synthetic Alex", resolution.targetName)
+        assertEquals(ChatIntent.CAPTURE, resolution.intent)
     }
 
     @Test
@@ -259,6 +268,53 @@ class GatewayClientTest {
         assertThrows(GatewayException::class.java) {
             GatewayClient.parseTargetResponse("not json at all")
         }
+    }
+
+    @Test
+    fun searchIntentNeedsNoTargetPersonAndUnclearIntentIsRefused() {
+        // A question routes to search, where there is no single person to name.
+        val search = JSONObject()
+            .put("intent", "search")
+            .put("targetName", "")
+            .put("warning", JSONObject.NULL)
+
+        val resolution = GatewayClient.parseTargetResponse(wrap(search))
+
+        assertEquals(ChatIntent.SEARCH, resolution.intent)
+        assertEquals("", resolution.targetName)
+
+        val unclear = JSONObject()
+            .put("intent", "unclear")
+            .put("targetName", "")
+            .put("warning", "This could be a note or a question.")
+        assertThrows(GatewayException::class.java) { GatewayClient.parseTargetResponse(wrap(unclear)) }
+    }
+
+    @Test
+    fun proposalCarriesTheAssistantSentenceAndFallsBackWhenItIsBlank() {
+        val payload = emptyProposalPayload().put("assistantMessage", "  Added   one need.  ")
+
+        val spoken = GatewayClient.parseProposalResponse(
+            responseBody = wrap(payload),
+            rawInput = "Sample note.",
+            targetName = "Sample Person",
+            person = null,
+            snapshot = NetworkSnapshot(),
+            now = Instant.parse("2026-08-26T01:00:00Z"),
+        )
+
+        assertEquals("Added one need.", spoken.assistantMessage)
+
+        val blank = GatewayClient.parseProposalResponse(
+            responseBody = wrap(emptyProposalPayload().put("assistantMessage", "   ")),
+            rawInput = "Sample note.",
+            targetName = "Sample Person",
+            person = null,
+            snapshot = NetworkSnapshot(),
+            now = Instant.parse("2026-08-26T01:00:00Z"),
+        )
+
+        assertEquals("Prepared changes for Sample Person.", blank.assistantMessage)
     }
 
     @Test
@@ -299,6 +355,7 @@ class GatewayClientTest {
         .put("interactionEdits", JSONArray())
         .put("needEdits", JSONArray())
         .put("capabilityEdits", JSONArray())
+        .put("assistantMessage", "Prepared changes.")
         .put("warning", JSONObject.NULL)
 
     /** The gateway answers with the schema-validated object under `output`. */

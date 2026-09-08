@@ -1,10 +1,23 @@
 package com.azizjon.network.ai
 
-import com.azizjon.network.data.NetworkSnapshot
+import com.azizjon.network.data.AiWriteProposal
 import com.azizjon.network.data.PersonEntity
 
 data class TargetResolution(
     val targetName: String,
+    val intent: ChatIntent,
+)
+
+/** A proposal plus the sentence the assistant says about it in the thread. */
+data class ProposalReply(
+    val proposal: AiWriteProposal,
+    val assistantMessage: String,
+)
+
+/** Ranked matches plus the sentence the assistant says about them. */
+data class SearchReply(
+    val results: List<AiPersonSearchResult>,
+    val assistantMessage: String,
 )
 
 data class TargetChoiceState(
@@ -32,27 +45,4 @@ data class SearchCorpus(
     val json: String,
     val peopleById: Map<Long, PersonEntity>,
     val evidenceById: Map<String, AiSearchEvidence>,
-)
-
-sealed interface AiCaptureState {
-    data object Idle : AiCaptureState
-    data object Resolving : AiCaptureState
-    data object BuildingProposal : AiCaptureState
-    data object Applying : AiCaptureState
-    data class ChooseTarget(val value: TargetChoiceState) : AiCaptureState
-    data class Preview(val proposal: com.azizjon.network.data.AiWriteProposal) : AiCaptureState
-    data class Error(val message: String) : AiCaptureState
-}
-
-data class AiSearchState(
-    val query: String = "",
-    val loading: Boolean = false,
-    val results: List<AiPersonSearchResult> = emptyList(),
-    val message: String = "",
-    val usedAi: Boolean = false,
-)
-
-data class PersonContext(
-    val snapshot: NetworkSnapshot,
-    val person: PersonEntity?,
 )

@@ -2,10 +2,8 @@ package com.azizjon.network.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,13 +17,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -43,13 +39,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.azizjon.network.data.CapabilityEntity
-import com.azizjon.network.ai.AiCaptureState
-import com.azizjon.network.ai.AiSearchState
-import com.azizjon.network.ai.GatewaySettingsState
-import com.azizjon.network.data.AiWriteProposal
 import com.azizjon.network.data.InteractionEntity
 import com.azizjon.network.data.NeedEntity
 import com.azizjon.network.data.NetworkSnapshot
@@ -64,22 +55,17 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun PeopleScreen(
     snapshot: NetworkSnapshot,
-    aiDraft: String,
-    aiCaptureState: AiCaptureState,
     onOpenPerson: (Long) -> Unit,
     onSavePerson: (PersonDraft, (Long) -> Unit) -> Unit,
-    onAiDraftChange: (String) -> Unit,
-    speechFallbackAllowed: Boolean,
-    onAllowSpeechFallback: () -> Unit,
-    onInterpretAiDraft: () -> Unit,
-    onChooseAiTarget: (Long?) -> Unit,
-    onChangeAiTarget: () -> Unit,
-    onUpdateAiProposal: (AiWriteProposal) -> Unit,
-    onCancelAiCapture: () -> Unit,
-    onApplyAiProposal: () -> Unit,
 ) {
     var adding by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
     val people = snapshot.people.filterNot { it.archived }
+    // Deterministic local matching, so browsing and finding both keep working
+    // without a token, consent, or a network round trip.
+    val matches = remember(snapshot, query) {
+        if (query.isBlank()) emptyList() else NetworkMatcher.search(snapshot, query)
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -95,33 +81,63 @@ fun PeopleScreen(
             FloatingActionButton(onClick = { adding = true }) { Text("+") }
         },
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            item {
-                AiCaptureCard(
-                    draft = aiDraft,
-                    state = aiCaptureState,
-                    onDraftChange = onAiDraftChange,
-                    speechFallbackAllowed = speechFallbackAllowed,
-                    onAllowSpeechFallback = onAllowSpeechFallback,
-                    onInterpret = onInterpretAiDraft,
-                )
-            }
-            if (people.isEmpty()) {
-                item {
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Start with one person", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            Text("Use AI capture above or the + button to add someone manually.")
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = { Text("Search your network") },
+                supportingText = { Text("Local matching only. Ask the assistant for evidence-backed suggestions.") },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            )
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (query.isNotBlank()) {
+                    if (matches.isEmpty()) {
+                        item("no-matches") {
+                            Text("No local matches. Try different words, or ask the assistant.")
                         }
                     }
-                }
-            } else {
-                items(people, key = { it.id }) { person ->
-                    PersonCard(person, snapshot, onClick = { onOpenPerson(person.id) })
+                    items(matches, key = { "match-${it.person.id}" }) { result ->
+                        Card(Modifier.fillMaxWidth().clickable { onOpenPerson(result.person.id) }) {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    result.person.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                result.evidence.take(3).forEach { evidence ->
+                                    Column {
+                                        Text(
+                                            "${evidence.kind} · ${formatDate(evidence.recordedAt)}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                        Text(evidence.text, style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else if (people.isEmpty()) {
+                    item("empty") {
+                        Card(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    "Start with one person",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text("Describe someone on the Assistant tab, or use + to add them manually.")
+                            }
+                        }
+                    }
+                } else {
+                    items(people, key = { it.id }) { person ->
+                        PersonCard(person, snapshot, onClick = { onOpenPerson(person.id) })
+                    }
                 }
             }
         }
@@ -133,15 +149,6 @@ fun PeopleScreen(
             onSave = { draft -> onSavePerson(draft) { adding = false } },
         )
     }
-    AiCaptureDialogs(
-        state = aiCaptureState,
-        snapshot = snapshot,
-        onChooseTarget = onChooseAiTarget,
-        onChangeTarget = onChangeAiTarget,
-        onUpdateProposal = onUpdateAiProposal,
-        onCancel = onCancelAiCapture,
-        onApply = onApplyAiProposal,
-    )
 }
 
 @Composable
@@ -415,140 +422,6 @@ private fun FormField(
         modifier = Modifier.fillMaxWidth(),
         minLines = minLines,
     )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun SearchScreen(
-    snapshot: NetworkSnapshot,
-    aiSearchState: AiSearchState,
-    gatewaySettingsState: GatewaySettingsState,
-    onOpenPerson: (Long) -> Unit,
-    onAcceptAiSearchConsent: () -> Unit,
-    onSearchWithAi: (String) -> Unit,
-    speechFallbackAllowed: Boolean,
-    onAllowSpeechFallback: () -> Unit,
-) {
-    var query by rememberSaveable { mutableStateOf("") }
-    var showConsent by rememberSaveable { mutableStateOf(false) }
-    val results = remember(snapshot, query) { NetworkMatcher.search(snapshot, query) }
-    val currentAiState = aiSearchState.takeIf { it.query == query }
-    Column(Modifier.fillMaxSize()) {
-        TopAppBar(title = { Text("Find a connection") })
-        OutlinedTextField(
-            value = query,
-            onValueChange = { if (it.length <= 4_000) query = it },
-            label = { Text("Who could help with…") },
-            supportingText = { Text("${query.length}/4000 · Local matching runs while you type. AI search sends the disclosed active searchable network.") },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        )
-        VoiceInputControl(
-            value = query,
-            maxCharacters = 4_000,
-            enabled = currentAiState?.loading != true,
-            fallbackAllowed = speechFallbackAllowed,
-            onAllowFallback = onAllowSpeechFallback,
-            onValueChange = { query = it },
-            modifier = Modifier.padding(horizontal = 16.dp),
-        )
-        Button(
-            enabled = query.isNotBlank() && currentAiState?.loading != true,
-            onClick = {
-                if (gatewaySettingsState.fullNetworkSearchConsent) onSearchWithAi(query) else showConsent = true
-            },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        ) { Text(if (currentAiState?.loading == true) "Searching with AI…" else "Search with AI") }
-        Spacer(Modifier.height(12.dp))
-        if (query.isBlank()) {
-            EmptyState("Ask a network question", "Try a skill, industry, problem, goal, or resource.")
-        } else {
-            LazyColumn(
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                if (currentAiState != null && currentAiState.message.isNotBlank()) {
-                    item("ai-message") {
-                        Card(Modifier.fillMaxWidth()) {
-                            Text(
-                                currentAiState.message,
-                                modifier = Modifier.padding(14.dp),
-                                color = if (currentAiState.usedAi) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                            )
-                        }
-                    }
-                }
-                currentAiState?.results.orEmpty().forEach { result ->
-                    item("ai-${result.person.id}") {
-                        Card(Modifier.fillMaxWidth().clickable { onOpenPerson(result.person.id) }) {
-                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("AI match · ${result.person.name}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                Text(result.reasoning)
-                                if (result.uncertainty.isNotBlank()) {
-                                    Text("Uncertainty: ${result.uncertainty}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                result.evidence.forEach { evidence ->
-                                    Column {
-                                        Text("${evidence.kind} · ${formatDate(evidence.recordedAt)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                                        Text(evidence.text, style = MaterialTheme.typography.bodyMedium)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                item("local-heading") {
-                    Text("Local matches", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                }
-                if (results.isEmpty()) {
-                    item("local-empty") {
-                        Text("No local evidence-backed matches. Add more records or try different words.")
-                    }
-                }
-                items(results, key = { "local-${it.person.id}" }) { result ->
-                    Card(Modifier.fillMaxWidth().clickable { onOpenPerson(result.person.id) }) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(result.person.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            result.evidence.take(3).forEach { evidence ->
-                                Column {
-                                    Text("${evidence.kind} · ${formatDate(evidence.recordedAt)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                                    Text(evidence.text, style = MaterialTheme.typography.bodyMedium)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if (showConsent) {
-        AlertDialog(
-            onDismissRequest = { showConsent = false },
-            title = { Text("Send active network text to the AI gateway?") },
-            text = {
-                Text(
-                    "AI search sends names, roles, organizations, locations, relationship context, tags, notes, interactions, active needs, active capabilities, and dates to Google. Contact values, archived people, closed needs, and inactive capabilities are excluded. This choice is remembered and can be revoked in Settings.",
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    showConsent = false
-                    onAcceptAiSearchConsent()
-                    onSearchWithAi(query)
-                }) { Text("Accept and search") }
-            },
-            dismissButton = { TextButton(onClick = { showConsent = false }) { Text("Cancel") } },
-        )
-    }
-}
-
-@Composable
-private fun EmptyState(title: String, body: String, modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxSize().padding(28.dp), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(body, style = MaterialTheme.typography.bodyMedium)
-        }
-    }
 }
 
 private val dayFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
