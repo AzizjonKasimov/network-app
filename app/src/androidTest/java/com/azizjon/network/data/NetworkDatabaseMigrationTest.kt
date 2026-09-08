@@ -26,11 +26,11 @@ class NetworkDatabaseMigrationTest {
     }
 
     @Test
-    fun migrationOneToTwoPreservesRowsAndAddsSafeDefaults() = runBlocking {
+    fun migrationFromVersionOnePreservesRowsAndMovesTheStoredJobToAPosition() = runBlocking {
         createVersionOneDatabase()
 
         val database = Room.databaseBuilder(context, NetworkDatabase::class.java, TEST_DATABASE)
-            .addMigrations(NetworkDatabase.MIGRATION_1_2)
+            .addMigrations(NetworkDatabase.MIGRATION_1_2, NetworkDatabase.MIGRATION_2_3)
             .build()
         try {
             val dao = database.networkDao()
@@ -39,6 +39,41 @@ class NetworkDatabaseMigrationTest {
             assertNull(dao.allNeeds().single().sourceInteractionId)
             assertTrue(dao.allCapabilities().single().active)
             assertNull(dao.allCapabilities().single().sourceInteractionId)
+
+            // The single organization/role pair becomes one current position, so an
+            // upgrade never silently drops where somebody works.
+            val affiliation = dao.allAffiliations().single()
+            assertEquals(1L, affiliation.personId)
+            assertEquals("Legacy Corp", affiliation.organization)
+            assertEquals("Legacy role", affiliation.role)
+            assertTrue(affiliation.current)
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
+    fun aPersonCanHoldSeveralConcurrentPositions() = runBlocking {
+        val database = Room.inMemoryDatabaseBuilder(context, NetworkDatabase::class.java).build()
+        try {
+            val dao = database.networkDao()
+            val personId = dao.savePerson(PersonEntity(name = "Synthetic Person", createdAt = 1, updatedAt = 1))
+            dao.insertAffiliation(
+                AffiliationEntity(personId = personId, organization = "Northwind Labs", role = "CEO", lastConfirmedAt = 2, createdAt = 2),
+            )
+            dao.insertAffiliation(
+                AffiliationEntity(personId = personId, organization = "Sample Ventures", role = "CTO", lastConfirmedAt = 3, createdAt = 3),
+            )
+
+            val stored = dao.allAffiliations()
+
+            assertEquals(2, stored.size)
+            assertEquals(setOf("Northwind Labs", "Sample Ventures"), stored.map { it.organization }.toSet())
+            assertTrue(stored.all { it.current })
+
+            // Deleting the person takes their positions with them.
+            dao.deletePerson(dao.allPeople().single())
+            assertTrue(dao.allAffiliations().isEmpty())
         } finally {
             database.close()
         }
@@ -106,7 +141,7 @@ class NetworkDatabaseMigrationTest {
                     database.execSQL("CREATE INDEX index_needs_status ON needs(status)")
                     database.execSQL("CREATE INDEX index_capabilities_personId ON capabilities(personId)")
                     database.execSQL("CREATE INDEX index_capabilities_lastConfirmedAt ON capabilities(lastConfirmedAt)")
-                    database.execSQL("INSERT INTO people VALUES (1, 'Legacy Person', '', '', '', '', '', '', '', 0, 0, 1, 2)")
+                    database.execSQL("INSERT INTO people VALUES (1, 'Legacy Person', 'Legacy Corp', 'Legacy role', '', '', '', '', '', 0, 0, 1, 2)")
                     database.execSQL("INSERT INTO interactions VALUES (2, 1, 'Legacy interaction', 3, 4)")
                     database.execSQL("INSERT INTO needs VALUES (3, 1, 'Legacy need', 'active', 5, 6)")
                     database.execSQL("INSERT INTO capabilities VALUES (4, 1, 'Legacy capability', 7, 8)")

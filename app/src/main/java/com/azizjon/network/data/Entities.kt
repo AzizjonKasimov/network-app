@@ -13,8 +13,6 @@ import androidx.room.PrimaryKey
 data class PersonEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
-    val organization: String = "",
-    val role: String = "",
     val location: String = "",
     val contact: String = "",
     val relationship: String = "",
@@ -112,3 +110,49 @@ data class CapabilityEntity(
     @ColumnInfo(defaultValue = "1") val active: Boolean = true,
     val sourceInteractionId: Long? = null,
 )
+
+/**
+ * One organization a person belongs to, with the role they hold there.
+ *
+ * People commonly hold more than one position at once - a founder who is also a
+ * CTO elsewhere, an advisor with a day job - so this is a list rather than a
+ * pair of fields on the person. [current] separates a position someone still
+ * holds from one they have left, which keeps history without implying it is
+ * still true.
+ */
+@Entity(
+    tableName = "affiliations",
+    foreignKeys = [
+        ForeignKey(
+            entity = PersonEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["personId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+        ForeignKey(
+            entity = InteractionEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["sourceInteractionId"],
+            onDelete = ForeignKey.SET_NULL,
+        ),
+    ],
+    indices = [Index("personId"), Index("current"), Index("sourceInteractionId")],
+)
+data class AffiliationEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val personId: Long,
+    val organization: String = "",
+    val role: String = "",
+    @ColumnInfo(defaultValue = "1") val current: Boolean = true,
+    val lastConfirmedAt: Long,
+    val createdAt: Long,
+    val sourceInteractionId: Long? = null,
+) {
+    /** "Role at Organization", collapsing gracefully when only one is known. */
+    val label: String
+        get() = when {
+            organization.isBlank() -> role
+            role.isBlank() -> organization
+            else -> "$role at $organization"
+        }
+}

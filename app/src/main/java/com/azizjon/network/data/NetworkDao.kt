@@ -23,6 +23,9 @@ abstract class NetworkDao {
     @Query("SELECT * FROM capabilities ORDER BY lastConfirmedAt DESC, id DESC")
     abstract fun observeCapabilities(): Flow<List<CapabilityEntity>>
 
+    @Query("SELECT * FROM affiliations ORDER BY current DESC, lastConfirmedAt DESC, id DESC")
+    abstract fun observeAffiliations(): Flow<List<AffiliationEntity>>
+
     @Query("SELECT * FROM people WHERE id = :id LIMIT 1")
     abstract suspend fun person(id: Long): PersonEntity?
 
@@ -37,6 +40,9 @@ abstract class NetworkDao {
 
     @Query("SELECT * FROM capabilities WHERE id = :id LIMIT 1")
     protected abstract suspend fun capability(id: Long): CapabilityEntity?
+
+    @Query("SELECT * FROM affiliations WHERE id = :id LIMIT 1")
+    protected abstract suspend fun affiliation(id: Long): AffiliationEntity?
 
     @Insert
     protected abstract suspend fun insertPerson(person: PersonEntity): Long
@@ -86,6 +92,15 @@ abstract class NetworkDao {
 
     @Query("DELETE FROM capabilities WHERE id = :id")
     abstract suspend fun deleteCapability(id: Long)
+
+    @Insert
+    abstract suspend fun insertAffiliation(affiliation: AffiliationEntity): Long
+
+    @Update
+    abstract suspend fun saveAffiliation(affiliation: AffiliationEntity)
+
+    @Query("DELETE FROM affiliations WHERE id = :id")
+    abstract suspend fun deleteAffiliation(id: Long)
 
     @Query("UPDATE people SET updatedAt = :updatedAt WHERE id = :personId")
     abstract suspend fun touchPerson(personId: Long, updatedAt: Long)
@@ -146,6 +161,19 @@ abstract class NetworkDao {
                 ),
             )
         }
+        proposal.newAffiliations.filter { it.selected }.forEach { addition ->
+            insertAffiliation(
+                AffiliationEntity(
+                    personId = personId,
+                    organization = addition.organization.trim(),
+                    role = addition.role.trim(),
+                    current = addition.current,
+                    lastConfirmedAt = proposal.occurredAt,
+                    createdAt = now,
+                    sourceInteractionId = auditId,
+                ),
+            )
+        }
         proposal.interactionEdits.filter { it.selected }.forEach { edit ->
             val existing = interaction(edit.id)
                 ?: throw IllegalArgumentException("An interaction selected for editing no longer exists")
@@ -176,6 +204,19 @@ abstract class NetworkDao {
                 ),
             )
         }
+        proposal.affiliationEdits.filter { it.selected }.forEach { edit ->
+            val existing = affiliation(edit.id)
+                ?: throw IllegalArgumentException("A position selected for editing no longer exists")
+            require(existing.personId == personId) { "A position belongs to a different person" }
+            saveAffiliation(
+                existing.copy(
+                    organization = edit.organization.trim(),
+                    role = edit.role.trim(),
+                    current = edit.current,
+                    lastConfirmedAt = edit.lastConfirmedAt,
+                ),
+            )
+        }
         return AiWriteResult(personId = personId, auditInteractionId = auditId)
     }
 
@@ -191,6 +232,9 @@ abstract class NetworkDao {
     @Query("SELECT * FROM capabilities ORDER BY id")
     abstract suspend fun allCapabilities(): List<CapabilityEntity>
 
+    @Query("SELECT * FROM affiliations ORDER BY id")
+    abstract suspend fun allAffiliations(): List<AffiliationEntity>
+
     @Query("DELETE FROM interactions")
     protected abstract suspend fun clearInteractions()
 
@@ -199,6 +243,9 @@ abstract class NetworkDao {
 
     @Query("DELETE FROM capabilities")
     protected abstract suspend fun clearCapabilities()
+
+    @Query("DELETE FROM affiliations")
+    protected abstract suspend fun clearAffiliations()
 
     @Query("DELETE FROM people")
     protected abstract suspend fun clearPeople()
@@ -215,21 +262,27 @@ abstract class NetworkDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     protected abstract suspend fun restoreCapabilities(capabilities: List<CapabilityEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    protected abstract suspend fun restoreAffiliations(affiliations: List<AffiliationEntity>)
+
     @Transaction
     open suspend fun replaceAll(
         people: List<PersonEntity>,
         interactions: List<InteractionEntity>,
         needs: List<NeedEntity>,
         capabilities: List<CapabilityEntity>,
+        affiliations: List<AffiliationEntity>,
     ) {
         clearInteractions()
         clearNeeds()
         clearCapabilities()
+        clearAffiliations()
         clearPeople()
         restorePeople(people)
         restoreInteractions(interactions)
         restoreNeeds(needs)
         restoreCapabilities(capabilities)
+        restoreAffiliations(affiliations)
     }
 
     private fun validateProposal(proposal: AiWriteProposal, now: Long) {
@@ -258,6 +311,15 @@ abstract class NetworkDao {
 
         proposal.newNeeds.filter { it.selected }.forEach { validateRecordText(it.text) }
         proposal.newCapabilities.filter { it.selected }.forEach { validateRecordText(it.text) }
+        proposal.newAffiliations.filter { it.selected }.forEach { validateAffiliation(it.organization, it.role) }
+        require(proposal.affiliationEdits.filter { it.selected }.map { it.id }.distinct().size == proposal.affiliationEdits.count { it.selected }) {
+            "The assistant proposed the same position more than once"
+        }
+        proposal.affiliationEdits.filter { it.selected }.forEach { edit ->
+            require(edit.id > 0) { "A position ID is invalid" }
+            validateAffiliation(edit.organization, edit.role)
+            require(edit.lastConfirmedAt in 1..(now + 5 * 60_000L)) { "A position date is invalid" }
+        }
         require(proposal.interactionEdits.filter { it.selected }.map { it.id }.distinct().size == proposal.interactionEdits.count { it.selected }) {
             "The assistant proposed the same interaction more than once"
         }
@@ -291,10 +353,15 @@ abstract class NetworkDao {
         require(text.isNotBlank() && text.length <= 1_000) { "A proposed record is invalid" }
     }
 
+    private fun validateAffiliation(organization: String, role: String) {
+        require(organization.trim().isNotBlank() || role.trim().isNotBlank()) {
+            "A proposed position needs an organization or a role"
+        }
+        require(organization.length <= 500 && role.length <= 500) { "A proposed position is too long" }
+    }
+
     private fun PersonEntity.withPatch(patch: ProfilePatch): PersonEntity = when (patch.field) {
         ProfileField.NAME -> copy(name = patch.value.trim())
-        ProfileField.ORGANIZATION -> copy(organization = patch.value.trim())
-        ProfileField.ROLE -> copy(role = patch.value.trim())
         ProfileField.LOCATION -> copy(location = patch.value.trim())
         ProfileField.CONTACT -> copy(contact = patch.value.trim())
         ProfileField.RELATIONSHIP -> copy(relationship = patch.value.trim())

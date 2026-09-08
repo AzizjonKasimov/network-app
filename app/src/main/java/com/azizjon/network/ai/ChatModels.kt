@@ -34,6 +34,7 @@ sealed interface ChatAttachment {
     data class Proposal(
         val proposal: AiWriteProposal,
         val savedPersonId: Long? = null,
+        val caveat: String? = null,
     ) : ChatAttachment {
         val applied: Boolean get() = savedPersonId != null
     }

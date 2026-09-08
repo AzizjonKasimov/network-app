@@ -44,10 +44,18 @@ object NetworkMatcher {
         tokens: List<String>,
     ): PersonSearchResult? {
         val evidence = buildList {
-            val profile = listOf(person.name, person.organization, person.role, person.location, person.tags, person.relationship, person.notes)
+            val profile = listOf(person.name, person.location, person.tags, person.relationship, person.notes)
                 .filter { it.isNotBlank() }
                 .joinToString(" · ")
             score(profile, query, tokens, 2)?.let { add(SearchEvidence("Profile", profile, person.updatedAt, it)) }
+            // A current position weighs more than a past one, so "works at X" beats
+            // "used to work at X" without hiding the history.
+            snapshot.affiliationsFor(person.id).forEach { item ->
+                val text = if (item.current) item.label else "${item.label} (past)"
+                score(text, query, tokens, if (item.current) 5 else 2)?.let {
+                    add(SearchEvidence("Position", text, item.lastConfirmedAt, it))
+                }
+            }
             snapshot.capabilitiesFor(person.id).forEach { item ->
                 if (item.active) {
                     score(item.text, query, tokens, 6)?.let { add(SearchEvidence("Capability", item.text, item.lastConfirmedAt, it)) }

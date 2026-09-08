@@ -1,5 +1,6 @@
 package com.azizjon.network.backup
 
+import com.azizjon.network.data.AffiliationEntity
 import com.azizjon.network.data.CapabilityEntity
 import com.azizjon.network.data.InteractionEntity
 import com.azizjon.network.data.NeedEntity
@@ -90,17 +91,18 @@ object EncryptedBackupCodec {
     }
 
     private fun NetworkSnapshot.toJson(): JSONObject = JSONObject()
-        .put("schemaVersion", 2)
+        .put("schemaVersion", 3)
         .put("exportedAt", System.currentTimeMillis())
         .put("people", JSONArray().apply { people.forEach { put(it.toJson()) } })
         .put("interactions", JSONArray().apply { interactions.forEach { put(it.toJson()) } })
         .put("needs", JSONArray().apply { needs.forEach { put(it.toJson()) } })
         .put("capabilities", JSONArray().apply { capabilities.forEach { put(it.toJson()) } })
+        .put("affiliations", JSONArray().apply { affiliations.forEach { put(it.toJson()) } })
 
     internal fun snapshotToJson(snapshot: NetworkSnapshot): String = snapshot.toJson().toString()
 
     private fun PersonEntity.toJson() = JSONObject()
-        .put("id", id).put("name", name).put("organization", organization).put("role", role)
+        .put("id", id).put("name", name)
         .put("location", location).put("contact", contact).put("relationship", relationship)
         .put("tags", tags).put("notes", notes).put("isSelf", isSelf).put("archived", archived)
         .put("createdAt", createdAt).put("updatedAt", updatedAt)
@@ -120,18 +122,22 @@ object EncryptedBackupCodec {
         .put("active", active)
         .put("sourceInteractionId", sourceInteractionId ?: JSONObject.NULL)
 
+    private fun AffiliationEntity.toJson() = JSONObject()
+        .put("id", id).put("personId", personId)
+        .put("organization", organization).put("role", role).put("current", current)
+        .put("lastConfirmedAt", lastConfirmedAt).put("createdAt", createdAt)
+        .put("sourceInteractionId", sourceInteractionId ?: JSONObject.NULL)
+
     internal fun snapshotFromJson(value: String): NetworkSnapshot = snapshotFromJson(JSONObject(value)).also(::validate)
 
     private fun snapshotFromJson(json: JSONObject): NetworkSnapshot {
         val schemaVersion = json.optInt("schemaVersion")
-        if (schemaVersion !in 1..2) throw BackupCodecException("Unsupported data schema")
+        if (schemaVersion !in 1..3) throw BackupCodecException("Unsupported data schema")
         return NetworkSnapshot(
             people = json.getJSONArray("people").mapObjects { item ->
                 PersonEntity(
                     id = item.getLong("id"),
                     name = item.getString("name"),
-                    organization = item.optString("organization"),
-                    role = item.optString("role"),
                     location = item.optString("location"),
                     contact = item.optString("contact"),
                     relationship = item.optString("relationship"),
@@ -168,7 +174,50 @@ object EncryptedBackupCodec {
                     sourceInteractionId = if (schemaVersion >= 2) item.optionalLong("sourceInteractionId") else null,
                 )
             },
+            affiliations = readAffiliations(json, schemaVersion),
         )
+    }
+
+    /**
+     * Reads positions, rebuilding them for backups written before they existed.
+     *
+     * Older backups stored one organization and role directly on the person, so
+     * each of those becomes a single current position. Restoring an old backup
+     * therefore keeps working and loses nothing.
+     */
+    private fun readAffiliations(json: JSONObject, schemaVersion: Int): List<AffiliationEntity> {
+        if (schemaVersion >= 3) {
+            return json.optJSONArray("affiliations").orEmpty().mapObjects { item ->
+                AffiliationEntity(
+                    id = item.getLong("id"),
+                    personId = item.getLong("personId"),
+                    organization = item.optString("organization"),
+                    role = item.optString("role"),
+                    current = item.optBoolean("current", true),
+                    lastConfirmedAt = item.getLong("lastConfirmedAt"),
+                    createdAt = item.getLong("createdAt"),
+                    sourceInteractionId = item.optionalLong("sourceInteractionId"),
+                )
+            }
+        }
+        var nextId = 0L
+        return json.getJSONArray("people").mapObjects { item ->
+            val organization = item.optString("organization").trim()
+            val role = item.optString("role").trim()
+            if (organization.isBlank() && role.isBlank()) {
+                null
+            } else {
+                AffiliationEntity(
+                    id = ++nextId,
+                    personId = item.getLong("id"),
+                    organization = organization,
+                    role = role,
+                    current = true,
+                    lastConfirmedAt = item.getLong("updatedAt"),
+                    createdAt = item.getLong("createdAt"),
+                )
+            }
+        }.filterNotNull()
     }
 
     private fun validate(snapshot: NetworkSnapshot) {
@@ -190,6 +239,12 @@ object EncryptedBackupCodec {
             snapshot.capabilities.any {
                 it.id <= 0 || it.personId !in personIds || it.text.isBlank() ||
                     (it.sourceInteractionId != null && it.sourceInteractionId !in interactionIds)
+            } ||
+            snapshot.affiliations.map { it.id }.toSet().size != snapshot.affiliations.size ||
+            snapshot.affiliations.any {
+                it.id <= 0 || it.personId !in personIds ||
+                    (it.organization.isBlank() && it.role.isBlank()) ||
+                    (it.sourceInteractionId != null && it.sourceInteractionId !in interactionIds)
             }
         ) {
             throw BackupCodecException("Backup contains invalid linked records")
@@ -198,6 +253,8 @@ object EncryptedBackupCodec {
 
     private fun JSONObject.optionalLong(name: String): Long? =
         if (!has(name) || isNull(name)) null else getLong(name)
+
+    private fun JSONArray?.orEmpty(): JSONArray = this ?: JSONArray()
 
     private inline fun <T> JSONArray.mapObjects(transform: (JSONObject) -> T): List<T> =
         buildList {

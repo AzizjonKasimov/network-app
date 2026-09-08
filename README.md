@@ -7,6 +7,7 @@ Network App is a private Android memory aid for a personal network. It records w
 The first native Android version includes:
 
 - create, edit, archive, and delete people;
+- record several concurrent positions per person, each with its own organization, role, and current/past state;
 - mark a profile as the user's own profile for reciprocal matching;
 - record dated interactions, needs/goals, and capabilities/resources;
 - private on-device matching across profile fields and linked records;
@@ -40,6 +41,10 @@ AI features are optional and route through a **self-hosted gateway** rather than
 5. To correct a proposal before saving, reply in the composer (“that was last Tuesday”, “drop the second need”). The assistant revises the open proposal rather than starting a new capture, and the original note stays verbatim. **Discard** closes it without writing anything.
 
 The original applied text is stored verbatim as an `AI-reviewed capture` interaction. Before returning a proposal, the assistant is instructed to account for each explicit fact as a structured change or an interaction-only fact; the app validates counts, lengths, duplicate profile fields, and duplicate record edits before showing the review. New extracted needs and capabilities retain a provenance link to the source interaction. The assistant cannot archive or delete people, delete records, change the self marker, or modify more than one person in one request.
+
+Positions are their own records rather than a single organization and role on the profile, so someone who is a CEO at one company and a CTO at another keeps both. The assistant proposes one entry per position, each editable and individually selectable before saving.
+
+A refusal and an explanation are kept apart. The assistant refuses only what it cannot do safely - more than one person, a deletion, an unidentifiable target - and that discards the proposal. Anything it merely handled awkwardly is reported as a **How this was handled** note on the card, and the proposal stays complete and applicable.
 
 When a message routes to search and full-network consent has not been given yet, the app asks first. The disclosure explains that the request sends all active searchable network text: names, self marker, organizations, roles, locations, relationship context, tags, profile notes, interactions, active needs, active capabilities, IDs, and dates. Contact values, archived people, closed needs, inactive capabilities, backup credentials, and the access token are excluded. Consent can be revoked in Settings, and declining leaves the **People** tab's local matching fully usable.
 
@@ -123,6 +128,7 @@ The script verifies the active GitHub account and repository visibility, prevent
 - One `:app` module, package `com.azizjon.network`.
 - Room database `network.db` with people, interactions, needs, and capabilities.
 - Room schema version 2 adds reviewed-interaction origin, need/capability provenance, and capability lifecycle state while preserving version-1 installations and backups.
+- Room schema version 3 moves organization and role off the person onto an `affiliations` table, so a person can hold several concurrent positions. The migration turns each stored pair into one current position, and backups written before version 3 are rebuilt the same way on restore.
 - Repository boundary and state-flow presentation with simple application-owned dependency wiring.
 - Local deterministic matching in `NetworkMatcher`, reachable without AI from the **People** tab.
 - Chat routing and privacy-scoped history in `ChatRouter`; conversation state in `ChatModels`.

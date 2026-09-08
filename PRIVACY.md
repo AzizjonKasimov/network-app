@@ -10,7 +10,7 @@ Manual person and record editing, local evidence-backed matching, browsing, arch
 
 Capture, correction, and search share one chat thread on the **Assistant** tab. When the user sends a message, the app sends that message, the bounded conversation history described below, current time, time zone, and locale to decide whether the message is a capture or a search and, for a capture, to identify one target person. No stored network records are included in that first request. When the message plainly names one saved person and does not read as a question, the phone resolves the target offline and skips this request entirely.
 
-After the target is resolved or selected, the proposal request sends the message and only that person's name, organization, role, location, relationship context, tags, profile notes, interactions, needs, capabilities, record IDs, statuses, and dates. The existing contact value, other people, archived state, self marker, backup secrets, and access token are not placed in the prompt. A newly typed contact value is part of the message and therefore is sent if the user explicitly includes it.
+After the target is resolved or selected, the proposal request sends the message and only that person's name, positions (organization, role, and whether current), location, relationship context, tags, profile notes, interactions, needs, capabilities, record IDs, statuses, and dates. The existing contact value, other people, archived state, self marker, backup secrets, and access token are not placed in the prompt. A newly typed contact value is part of the message and therefore is sent if the user explicitly includes it.
 
 The gateway returns a structured proposal. The app validates its schema, lengths, counts, duplicate changes, and record IDs and shows an editable proposal card in the thread. The proposal separately lists explicit facts kept only in the original verbatim interaction rather than mapped into structured fields or records. Nothing is written before confirmation. Applying the proposal stores the original message verbatim as an AI-reviewed interaction and applies the selected changes in one Room transaction.
 
@@ -39,7 +39,8 @@ Network App does not create or retain audio files, write speech or transcripts t
 The first message that routes to search requires acknowledgement that each search sends the full active searchable network to the gateway operator and, through them, to Anthropic. The request includes:
 
 - names and the self marker;
-- organizations, roles, locations, relationship context, tags, and profile notes;
+- positions with their organizations, roles, and current/past state;
+- locations, relationship context, tags, and profile notes;
 - interactions and their dates;
 - active needs and active capabilities with IDs and dates;
 - the user's search question and the replayed turns described under **Conversation history**.

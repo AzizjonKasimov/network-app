@@ -50,7 +50,8 @@ class GatewayClientTest {
         assertEquals(
             listOf(
                 "occurredAt", "interactionOnlyFacts", "profilePatches", "newNeeds", "newCapabilities",
-                "interactionEdits", "needEdits", "capabilityEdits", "assistantMessage", "warning",
+                "newAffiliations", "interactionEdits", "needEdits", "capabilityEdits", "affiliationEdits",
+                "assistantMessage", "caveat", "warning",
             ),
             requiredNames,
         )
@@ -184,8 +185,8 @@ class GatewayClientTest {
         val duplicatePatches = emptyProposalPayload().put(
             "profilePatches",
             JSONArray()
-                .put(JSONObject().put("field", "role").put("value", "Engineer"))
-                .put(JSONObject().put("field", "role").put("value", "Lead engineer")),
+                .put(JSONObject().put("field", "location").put("value", "Seoul"))
+                .put(JSONObject().put("field", "location").put("value", "Busan")),
         )
         assertThrows(GatewayException::class.java) {
             GatewayClient.parseProposalResponse(
@@ -318,6 +319,80 @@ class GatewayClientTest {
     }
 
     @Test
+    fun aCaveatExplainsAnAwkwardFactWithoutDiscardingTheProposal() {
+        // Someone holding two concurrent roles fits only one organization and one
+        // role in the profile. The assistant says how it handled the rest; that
+        // explanation must never cost the user the whole proposal.
+        val payload = emptyProposalPayload()
+            .put(
+                "newAffiliations",
+                JSONArray()
+                    .put(
+                        JSONObject().put("organization", "Northwind Labs").put("role", "CEO").put("current", true),
+                    )
+                    .put(
+                        JSONObject().put("organization", "Sample Ventures").put("role", "CTO").put("current", true),
+                    ),
+            )
+            .put("caveat", "Both concurrent positions were recorded separately.")
+
+        val reply = GatewayClient.parseProposalResponse(
+            responseBody = wrap(payload),
+            rawInput = "Synthetic note about two roles.",
+            targetName = "Sample Person",
+            person = null,
+            snapshot = NetworkSnapshot(),
+            now = Instant.parse("2026-09-08T01:00:00Z"),
+        )
+
+        // Both positions survive: neither is demoted to a capability or a note.
+        assertEquals(2, reply.proposal.newAffiliations.size)
+        assertEquals(
+            listOf("Northwind Labs" to "CEO", "Sample Ventures" to "CTO"),
+            reply.proposal.newAffiliations.map { it.organization to it.role },
+        )
+        assertTrue(reply.proposal.newAffiliations.all { it.current })
+        assertTrue(reply.caveat!!.contains("Both concurrent positions"))
+    }
+
+    @Test
+    fun aWarningStillDiscardsTheProposal() {
+        val payload = emptyProposalPayload().put("warning", "This note targets more than one person.")
+
+        assertThrows(GatewayException::class.java) {
+            GatewayClient.parseProposalResponse(
+                responseBody = wrap(payload),
+                rawInput = "Synthetic note.",
+                targetName = "Sample Person",
+                person = null,
+                snapshot = NetworkSnapshot(),
+                now = Instant.parse("2026-09-08T01:00:00Z"),
+            )
+        }
+    }
+
+    @Test
+    fun anAdvisoryTargetWarningDoesNotBlockAUsableName() {
+        // Same rule on the routing call: a note beside a usable name is advice,
+        // and only an unusable name refuses, carrying the warning as its reason.
+        val advisory = JSONObject()
+            .put("intent", "capture")
+            .put("targetName", "Sample Person")
+            .put("warning", "Two organizations were mentioned for this person.")
+
+        val resolution = GatewayClient.parseTargetResponse(wrap(advisory))
+
+        assertEquals("Sample Person", resolution.targetName)
+        assertEquals(ChatIntent.CAPTURE, resolution.intent)
+
+        val refused = JSONObject()
+            .put("intent", "capture")
+            .put("targetName", "")
+            .put("warning", "This note targets more than one person.")
+        assertThrows(GatewayException::class.java) { GatewayClient.parseTargetResponse(wrap(refused)) }
+    }
+
+    @Test
     fun gatewayFailuresHaveSafeActionableMessages() {
         assertTrue(GatewayClient.httpFailureReason(401).contains("access token"))
         assertTrue(
@@ -352,10 +427,13 @@ class GatewayClientTest {
         .put("profilePatches", JSONArray())
         .put("newNeeds", JSONArray())
         .put("newCapabilities", JSONArray())
+        .put("newAffiliations", JSONArray())
         .put("interactionEdits", JSONArray())
         .put("needEdits", JSONArray())
         .put("capabilityEdits", JSONArray())
+        .put("affiliationEdits", JSONArray())
         .put("assistantMessage", "Prepared changes.")
+        .put("caveat", JSONObject.NULL)
         .put("warning", JSONObject.NULL)
 
     /** The gateway answers with the schema-validated object under `output`. */

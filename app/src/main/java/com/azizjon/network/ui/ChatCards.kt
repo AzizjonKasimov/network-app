@@ -30,6 +30,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.azizjon.network.ai.AiPersonSearchResult
 import com.azizjon.network.ai.TargetChoiceState
+import com.azizjon.network.data.AiAffiliationAdd
+import com.azizjon.network.data.AiAffiliationEdit
 import com.azizjon.network.data.AiCapabilityEdit
 import com.azizjon.network.data.AiInteractionEdit
 import com.azizjon.network.data.AiNeedEdit
@@ -58,6 +60,7 @@ fun ProposalCard(
     snapshot: NetworkSnapshot,
     applied: Boolean,
     savedPersonId: Long?,
+    caveat: String?,
     busy: Boolean,
     onChangeTarget: () -> Unit,
     onUpdate: (AiWriteProposal) -> Unit,
@@ -83,6 +86,21 @@ fun ProposalCard(
                 "The message is stored verbatim as an AI-reviewed interaction either way.",
                 style = MaterialTheme.typography.bodySmall,
             )
+            if (caveat != null) {
+                // How an awkward fact was handled. Advisory: the proposal below is
+                // complete and applying it is the normal next step.
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ),
+                ) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("How this was handled", fontWeight = FontWeight.SemiBold)
+                        Text(caveat, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
             if (proposal.interactionOnlyFacts.isNotEmpty()) {
                 Card(
                     colors = CardDefaults.cardColors(
@@ -127,6 +145,22 @@ fun ProposalCard(
                         onUpdate(proposal.copy(profilePatches = proposal.profilePatches.replace(index, patch.copy(value = value))))
                     },
                 )
+            }
+
+            ProposalHeading("Positions", proposal.newAffiliations.size)
+            proposal.newAffiliations.forEachIndexed { index, item ->
+                AffiliationAddCard(item) { changed ->
+                    onUpdate(proposal.copy(newAffiliations = proposal.newAffiliations.replace(index, changed)))
+                }
+            }
+
+            ProposalHeading("Position changes", proposal.affiliationEdits.size)
+            proposal.affiliationEdits.forEachIndexed { index, edit ->
+                val before = snapshot.affiliationsFor(proposal.targetPersonId ?: -1)
+                    .firstOrNull { it.id == edit.id }?.label.orEmpty()
+                AffiliationEditCard(edit, before) { changed ->
+                    onUpdate(proposal.copy(affiliationEdits = proposal.affiliationEdits.replace(index, changed)))
+                }
             }
 
             ProposalHeading("New needs", proposal.newNeeds.size)
@@ -193,6 +227,10 @@ fun ProposalCard(
 private fun AppliedProposalSummary(proposal: AiWriteProposal) {
     val lines = buildList {
         proposal.profilePatches.filter { it.selected }.forEach { add("${it.field.displayName()} set") }
+        proposal.newAffiliations.filter { it.selected }.forEach {
+            add("Position: " + listOf(it.role, it.organization).filter(String::isNotBlank).joinToString(" at "))
+        }
+        proposal.affiliationEdits.filter { it.selected }.forEach { add("Position #${it.id} updated") }
         proposal.newNeeds.filter { it.selected }.forEach { add("Need: ${it.text}") }
         proposal.newCapabilities.filter { it.selected }.forEach { add("Capability: ${it.text}") }
         proposal.interactionEdits.filter { it.selected }.forEach { add("Interaction #${it.id} edited") }
@@ -208,7 +246,12 @@ private fun AppliedProposalSummary(proposal: AiWriteProposal) {
 }
 
 @Composable
-fun TargetChoiceCard(choice: TargetChoiceState, busy: Boolean, onChoose: (Long?) -> Unit) {
+fun TargetChoiceCard(
+    choice: TargetChoiceState,
+    snapshot: NetworkSnapshot,
+    busy: Boolean,
+    onChoose: (Long?) -> Unit,
+) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
@@ -217,7 +260,7 @@ fun TargetChoiceCard(choice: TargetChoiceState, busy: Boolean, onChoose: (Long?)
             )
             choice.suggestions.forEach { person ->
                 TextButton(onClick = { onChoose(person.id) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                    val detail = listOf(person.role, person.organization).filter(String::isNotBlank).joinToString(" \u00b7 ")
+                    val detail = snapshot.affiliationSummary(person.id)
                     Text(if (detail.isBlank()) person.name else "${person.name} \u2014 $detail")
                 }
             }
@@ -295,6 +338,73 @@ private fun InteractionEditCard(edit: AiInteractionEdit, before: String, onChang
     if (edit.selected) DateField("Interaction date", edit.occurredAt) { onChange(edit.copy(occurredAt = it)) }
 }
 
+/** One proposed position. Organization and role stay separate so either can be corrected. */
+@Composable
+private fun AffiliationAddCard(item: AiAffiliationAdd, onChange: (AiAffiliationAdd) -> Unit) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(item.selected, { onChange(item.copy(selected = it)) })
+                Text("New position", fontWeight = FontWeight.SemiBold)
+            }
+            OutlinedTextField(
+                item.organization,
+                { onChange(item.copy(organization = it)) },
+                enabled = item.selected,
+                label = { Text("Organization") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                item.role,
+                { onChange(item.copy(role = it)) },
+                enabled = item.selected,
+                label = { Text("Role") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (item.selected) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(item.current, { onChange(item.copy(current = it)) })
+                    Text(if (item.current) "Current" else "Past", modifier = Modifier.padding(start = 8.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AffiliationEditCard(edit: AiAffiliationEdit, before: String, onChange: (AiAffiliationEdit) -> Unit) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(edit.selected, { onChange(edit.copy(selected = it)) })
+                Text("Edit position #${edit.id}", fontWeight = FontWeight.SemiBold)
+            }
+            if (before.isNotBlank()) Text("Before: $before", style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(
+                edit.organization,
+                { onChange(edit.copy(organization = it)) },
+                enabled = edit.selected,
+                label = { Text("Organization") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                edit.role,
+                { onChange(edit.copy(role = it)) },
+                enabled = edit.selected,
+                label = { Text("Role") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (edit.selected) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(edit.current, { onChange(edit.copy(current = it)) })
+                    Text(if (edit.current) "Current" else "Past", modifier = Modifier.padding(start = 8.dp))
+                }
+                DateField("Last confirmed", edit.lastConfirmedAt) { onChange(edit.copy(lastConfirmedAt = it)) }
+            }
+        }
+    }
+}
+
 @Composable
 private fun NeedEditCard(edit: AiNeedEdit, before: String, onChange: (AiNeedEdit) -> Unit) {
     SelectableTextEdit(edit.selected, "Edit need #${edit.id}", before, edit.text, { onChange(edit.copy(selected = it)) }, { onChange(edit.copy(text = it)) })
@@ -348,8 +458,6 @@ private fun ProfileField.displayName(): String = name.lowercase().replaceFirstCh
 
 private fun PersonEntity.profileValue(field: ProfileField): String = when (field) {
     ProfileField.NAME -> name
-    ProfileField.ORGANIZATION -> organization
-    ProfileField.ROLE -> role
     ProfileField.LOCATION -> location
     ProfileField.CONTACT -> contact
     ProfileField.RELATIONSHIP -> relationship

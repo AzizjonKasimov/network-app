@@ -175,6 +175,7 @@ private fun ChatMessageRow(
                 snapshot = snapshot,
                 applied = attachment.applied,
                 savedPersonId = attachment.savedPersonId,
+                caveat = attachment.caveat,
                 busy = busy,
                 onChangeTarget = onChangeProposalTarget,
                 onUpdate = onUpdateProposal,
@@ -182,7 +183,7 @@ private fun ChatMessageRow(
                 onApply = onApplyProposal,
                 onOpenPerson = onOpenPerson,
             )
-            is ChatAttachment.TargetChoice -> TargetChoiceCard(attachment.value, busy, onChooseTarget)
+            is ChatAttachment.TargetChoice -> TargetChoiceCard(attachment.value, snapshot, busy, onChooseTarget)
             is ChatAttachment.Search -> SearchResultsCard(attachment.results, onOpenPerson)
             null -> Unit
         }

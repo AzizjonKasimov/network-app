@@ -40,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.azizjon.network.data.AffiliationEntity
 import com.azizjon.network.data.CapabilityEntity
 import com.azizjon.network.data.InteractionEntity
 import com.azizjon.network.data.NeedEntity
@@ -167,7 +168,7 @@ private fun PersonCard(person: PersonEntity, snapshot: NetworkSnapshot, onClick:
                     }
                 }
             }
-            val work = listOf(person.role, person.organization).filter { it.isNotBlank() }.joinToString(" · ")
+            val work = snapshot.affiliationSummary(person.id)
             if (work.isNotBlank()) Text(work, style = MaterialTheme.typography.bodyMedium)
             if (person.relationship.isNotBlank()) Text(person.relationship, style = MaterialTheme.typography.bodySmall)
             Text(
@@ -190,13 +191,18 @@ fun PersonDetailScreen(
     onAddInteraction: (Long, String) -> Unit,
     onAddNeed: (Long, String) -> Unit,
     onAddCapability: (Long, String) -> Unit,
+    onAddAffiliation: (Long, String, String) -> Unit,
     onDeleteInteraction: (InteractionEntity) -> Unit,
     onDeleteNeed: (NeedEntity) -> Unit,
     onDeleteCapability: (CapabilityEntity) -> Unit,
+    onDeleteAffiliation: (AffiliationEntity) -> Unit,
+    onSetAffiliationCurrent: (AffiliationEntity, Boolean) -> Unit,
 ) {
     var editing by rememberSaveable(person.id) { mutableStateOf(false) }
     var addKind by rememberSaveable(person.id) { mutableStateOf<RecordKind?>(null) }
     var confirmDelete by rememberSaveable(person.id) { mutableStateOf(false) }
+    var addingAffiliation by rememberSaveable(person.id) { mutableStateOf(false) }
+    val affiliations = snapshot.affiliationsFor(person.id)
     val interactions = snapshot.interactionsFor(person.id)
     val needs = snapshot.needsFor(person.id)
     val capabilities = snapshot.capabilitiesFor(person.id)
@@ -217,7 +223,16 @@ fun PersonDetailScreen(
             modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            ProfileSummary(person)
+            ProfileSummary(person, snapshot.affiliationSummary(person.id))
+            RecordSection("Positions", affiliations.size, { addingAffiliation = true }) {
+                affiliations.forEach { item ->
+                    AffiliationCard(
+                        item = item,
+                        onDelete = { onDeleteAffiliation(item) },
+                        onSetCurrent = { current -> onSetAffiliationCurrent(item, current) },
+                    )
+                }
+            }
             RecordSection("Capabilities / resources", capabilities.size, { addKind = RecordKind.CAPABILITY }) {
                 capabilities.forEach { item ->
                     RecordCard(item.text, item.lastConfirmedAt, { onDeleteCapability(item) }, if (item.active) "" else "Inactive")
@@ -263,6 +278,15 @@ fun PersonDetailScreen(
             },
         )
     }
+    if (addingAffiliation) {
+        AddAffiliationDialog(
+            onDismiss = { addingAffiliation = false },
+            onSave = { organization, role ->
+                onAddAffiliation(person.id, organization, role)
+                addingAffiliation = false
+            },
+        )
+    }
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
@@ -275,10 +299,73 @@ fun PersonDetailScreen(
 }
 
 @Composable
-private fun ProfileSummary(person: PersonEntity) {
+private fun AffiliationCard(
+    item: AffiliationEntity,
+    onDelete: () -> Unit,
+    onSetCurrent: (Boolean) -> Unit,
+) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(item.label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+            Text(
+                "${if (item.current) "Current" else "Past"} · confirmed ${formatDate(item.lastConfirmedAt)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(item.current, onSetCurrent)
+                Text(
+                    if (item.current) "Still there" else "Left",
+                    modifier = Modifier.padding(start = 8.dp).weight(1f),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                TextButton(onClick = onDelete) { Text("Delete") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddAffiliationDialog(onDismiss: () -> Unit, onSave: (String, String) -> Unit) {
+    var organization by remember { mutableStateOf("") }
+    var role by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add a position") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Someone can hold several at once. Add one for each.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedTextField(
+                    value = organization,
+                    onValueChange = { organization = it },
+                    label = { Text("Organization") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = role,
+                    onValueChange = { role = it },
+                    label = { Text("Role") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = organization.isNotBlank() || role.isNotBlank(),
+                onClick = { onSave(organization, role) },
+            ) { Text("Add") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun ProfileSummary(person: PersonEntity, work: String) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            val work = listOf(person.role, person.organization).filter { it.isNotBlank() }.joinToString(" · ")
             if (work.isNotBlank()) Text(work, style = MaterialTheme.typography.titleMedium)
             listOf(person.location, person.contact, person.relationship, person.tags, person.notes)
                 .filter { it.isNotBlank() }
@@ -342,8 +429,6 @@ private fun AddRecordDialog(kind: RecordKind, onDismiss: () -> Unit, onSave: (St
 @Composable
 private fun PersonEditorDialog(person: PersonEntity?, onDismiss: () -> Unit, onSave: (PersonDraft) -> Unit) {
     var name by rememberSaveable(person?.id) { mutableStateOf(person?.name.orEmpty()) }
-    var organization by rememberSaveable(person?.id) { mutableStateOf(person?.organization.orEmpty()) }
-    var role by rememberSaveable(person?.id) { mutableStateOf(person?.role.orEmpty()) }
     var location by rememberSaveable(person?.id) { mutableStateOf(person?.location.orEmpty()) }
     var contact by rememberSaveable(person?.id) { mutableStateOf(person?.contact.orEmpty()) }
     var relationship by rememberSaveable(person?.id) { mutableStateOf(person?.relationship.orEmpty()) }
@@ -361,8 +446,6 @@ private fun PersonEditorDialog(person: PersonEntity?, onDismiss: () -> Unit, onS
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 FormField(name, { name = it }, "Name", true)
-                FormField(organization, { organization = it }, "Organization")
-                FormField(role, { role = it }, "Role")
                 FormField(location, { location = it }, "Location")
                 FormField(contact, { contact = it }, "Contact details")
                 FormField(relationship, { relationship = it }, "How you know them")
@@ -379,6 +462,11 @@ private fun PersonEditorDialog(person: PersonEntity?, onDismiss: () -> Unit, onS
                         Text("Archived")
                     }
                 }
+                Text(
+                    "Add jobs and companies under Positions, so someone can hold several at once.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         },
         confirmButton = {
@@ -389,8 +477,6 @@ private fun PersonEditorDialog(person: PersonEntity?, onDismiss: () -> Unit, onS
                         PersonDraft(
                             id = person?.id ?: 0,
                             name = name,
-                            organization = organization,
-                            role = role,
                             location = location,
                             contact = contact,
                             relationship = relationship,

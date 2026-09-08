@@ -19,6 +19,7 @@ import com.azizjon.network.ai.PersonResolver
 import com.azizjon.network.ai.TargetChoiceState
 import com.azizjon.network.backup.BackupStatus
 import com.azizjon.network.backup.GitHubBackupConfig
+import com.azizjon.network.data.AffiliationEntity
 import com.azizjon.network.data.CapabilityEntity
 import com.azizjon.network.data.InteractionEntity
 import com.azizjon.network.data.NeedEntity
@@ -135,6 +136,16 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         repository.addCapability(personId, text)
     }
 
+    fun addAffiliation(personId: Long, organization: String, role: String) = mutate {
+        repository.addAffiliation(personId, organization, role)
+    }
+
+    fun setAffiliationCurrent(item: AffiliationEntity, current: Boolean) = mutate {
+        repository.setAffiliationCurrent(item, current)
+    }
+
+    fun deleteAffiliation(item: AffiliationEntity) = mutate { repository.deleteAffiliation(item) }
+
     fun deleteInteraction(item: InteractionEntity) = mutate { repository.deleteInteraction(item) }
     fun deleteNeed(item: NeedEntity) = mutate { repository.deleteNeed(item) }
     fun deleteCapability(item: CapabilityEntity) = mutate { repository.deleteCapability(item) }
@@ -217,7 +228,10 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         // Hand edits may only change the contents. Re-pointing a proposal at
         // somebody else goes through changeChatProposalTarget, which rebuilds it.
         if (proposal.rawInput != current.rawInput || proposal.targetPersonId != current.targetPersonId) return
-        updateMessage(messageId) { it.copy(attachment = ChatAttachment.Proposal(proposal)) }
+        updateMessage(messageId) { message ->
+            val existing = message.attachment as? ChatAttachment.Proposal
+            message.copy(attachment = ChatAttachment.Proposal(proposal, caveat = existing?.caveat))
+        }
     }
 
     fun discardChatProposal() {
@@ -238,7 +252,10 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
             setPhase(ChatPhase.Applying)
             try {
                 val result = repository.applyAiProposal(proposal)
-                updateMessage(messageId) { it.copy(attachment = ChatAttachment.Proposal(proposal, result.personId)) }
+                updateMessage(messageId) { message ->
+                    val existing = message.attachment as? ChatAttachment.Proposal
+                    message.copy(attachment = ChatAttachment.Proposal(proposal, result.personId, existing?.caveat))
+                }
                 appendAssistant("Saved for ${proposal.targetName}.")
                 scheduleAutoBackup()
             } catch (cancelled: CancellationException) {
@@ -432,7 +449,7 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
             locale = Locale.getDefault().toLanguageTag(),
             history = ChatRouter.captureScopedTurns(history),
         )
-        appendAssistant(reply.assistantMessage, ChatAttachment.Proposal(reply.proposal))
+        appendAssistant(reply.assistantMessage, ChatAttachment.Proposal(reply.proposal, caveat = reply.caveat))
     }
 
     /**
@@ -461,7 +478,7 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
             previousProposal = proposal,
         )
         clearAttachment(messageId)
-        appendAssistant(reply.assistantMessage, ChatAttachment.Proposal(reply.proposal))
+        appendAssistant(reply.assistantMessage, ChatAttachment.Proposal(reply.proposal, caveat = reply.caveat))
     }
 
     private fun appendUser(text: String) = append(ChatRole.USER, text, null, false)

@@ -12,6 +12,12 @@ data class TargetResolution(
 data class ProposalReply(
     val proposal: AiWriteProposal,
     val assistantMessage: String,
+    /**
+     * How the assistant handled something the model cannot represent exactly -
+     * a second concurrent organization, say. Advisory only: it is shown on the
+     * card and never blocks the proposal.
+     */
+    val caveat: String? = null,
 )
 
 /** Ranked matches plus the sentence the assistant says about them. */

@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.azizjon.network.data.AffiliationEntity
 import com.azizjon.network.data.CapabilityEntity
 import com.azizjon.network.data.InteractionEntity
 import com.azizjon.network.data.NeedEntity
@@ -82,8 +83,6 @@ class GatewayLiveApiInstrumentedTest {
         val person = PersonEntity(
             id = 101,
             name = "Alex Rivera",
-            organization = "Lunar Lab",
-            role = "Android engineer",
             location = "Seoul",
             tags = "Kotlin, Compose, synthetic",
             notes = "Synthetic QA profile only.",
@@ -91,6 +90,16 @@ class GatewayLiveApiInstrumentedTest {
             updatedAt = now.toEpochMilli(),
         )
         val snapshot = NetworkSnapshot(
+            affiliations = listOf(
+                AffiliationEntity(
+                    id = 501,
+                    personId = person.id,
+                    organization = "Lunar Lab",
+                    role = "Android engineer",
+                    lastConfirmedAt = now.toEpochMilli(),
+                    createdAt = now.toEpochMilli(),
+                ),
+            ),
             people = listOf(person),
             interactions = listOf(
                 InteractionEntity(
@@ -164,6 +173,30 @@ class GatewayLiveApiInstrumentedTest {
             fastProposal.proposal.rawInput,
             refined.proposal.rawInput,
         )
+
+        // Two concurrent roles do not fit one organization and one role field. The
+        // assistant must say how it handled that without the client discarding the
+        // whole proposal, which is what used to happen to any explanatory text.
+        val twoRoles = "Priya Raghunathan is CEO of Northwind Labs and is also CTO at Sample Ventures."
+        val dualReply = liveStage("proposeChanges (two concurrent roles)") {
+            client.proposeChanges(
+                input = twoRoles,
+                targetName = "Priya Raghunathan",
+                snapshot = NetworkSnapshot(),
+                person = null,
+                now = now,
+                zoneId = ZoneOffset.UTC,
+                locale = "en-US",
+            )
+        }
+        val dual = dualReply.proposal
+        assertTrue(
+            "A person with two roles must still produce an applicable proposal",
+            dual.profilePatches.isNotEmpty() ||
+                dual.newCapabilities.isNotEmpty() ||
+                dual.interactionOnlyFacts.isNotEmpty(),
+        )
+        Log.i(TAG, "two-role caveat present: ${dualReply.caveat != null}")
 
         // A question routes to search instead of a write, with no target person.
         val question = "Who can build Kotlin prototypes?"
