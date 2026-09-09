@@ -51,6 +51,22 @@ data class ChatMessage(
     val attachment: ChatAttachment? = null,
     val failed: Boolean = false,
     val sentAt: Long,
+    /**
+     * True when the gateway produced this turn.
+     *
+     * The thread also carries locally written lines - "Discarded. Nothing was
+     * saved." - and those are the app talking, not the assistant. Only a
+     * gateway turn is worth reporting as a bad response.
+     */
+    val fromGateway: Boolean = false,
+    /**
+     * The fault the user filed against this response, once they have.
+     *
+     * Held on the message purely so the thread can show that it was reported
+     * and stop offering to report it twice. The report itself lives in the
+     * database and outlives both this message and the whole thread.
+     */
+    val reportedLabel: String? = null,
 )
 
 /** What the thread is doing right now. Drives the composer and the typing row. */

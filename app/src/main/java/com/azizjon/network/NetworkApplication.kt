@@ -8,6 +8,7 @@ import com.azizjon.network.backup.GitHubBackupSettings
 import com.azizjon.network.backup.GitHubEncryptedBackupManager
 import com.azizjon.network.data.NetworkDatabase
 import com.azizjon.network.data.NetworkRepository
+import com.azizjon.network.feedback.FeedbackExporter
 
 class NetworkApplication : Application() {
     val repository: NetworkRepository by lazy {
@@ -20,4 +21,5 @@ class NetworkApplication : Application() {
     val gatewaySettings: GatewaySettings by lazy { GatewaySettings(this) }
     val gatewayClient: GatewayClient by lazy { GatewayClient(gatewaySettings::token) }
     val captureDraftStore: CaptureDraftStore by lazy { CaptureDraftStore(this) }
+    val feedbackExporter: FeedbackExporter by lazy { FeedbackExporter(this) }
 }

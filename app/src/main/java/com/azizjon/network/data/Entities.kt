@@ -200,3 +200,48 @@ data class FactEntity(
     val createdAt: Long,
     val sourceInteractionId: Long? = null,
 )
+
+/**
+ * One assistant response the user marked as wrong, kept for later analysis.
+ *
+ * The chat thread is memory-only and a proposal card disappears the moment it
+ * is applied or a new chat starts, so a report has to copy the response into
+ * itself rather than point at it. That makes each row self-contained: it can be
+ * read, exported, and acted on long after the conversation is gone.
+ *
+ * This is diagnostic data about the assistant, not a network record. It has no
+ * foreign keys, is excluded from the encrypted GitHub backup, and survives a
+ * restore that replaces every person.
+ */
+@Entity(
+    tableName = "ai_feedback",
+    indices = [Index("createdAt"), Index("exportedAt")],
+)
+data class AiFeedbackEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** Which assistant step produced the response. See [Stage]. */
+    val stage: String,
+    /** The fault the user picked. Matches an `AiFeedbackLabel` id. */
+    val label: String,
+    /** The user's own description of what went wrong. Optional. */
+    val note: String = "",
+    /** The message that produced the response. */
+    val userMessage: String,
+    /** What the assistant said in the thread. */
+    val assistantMessage: String,
+    /** The card rendered under the message, flattened to readable text. */
+    val assistantDetail: String = "",
+    /** App version at the time, so a fixed fault is not re-investigated. */
+    val appVersion: String,
+    val createdAt: Long,
+    /** When this row was last written to an export report; null while new. */
+    val exportedAt: Long? = null,
+) {
+    object Stage {
+        const val PROPOSAL = "proposal"
+        const val SEARCH = "search"
+        const val TARGET_CHOICE = "target_choice"
+        const val MESSAGE = "message"
+        const val ERROR = "error"
+    }
+}

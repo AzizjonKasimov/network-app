@@ -18,6 +18,7 @@ The first native Android version includes:
 - capture coverage that flags explicit facts kept only in the original interaction;
 - optional full-active-network AI search with evidence IDs, exact stored sources, and one-time consent;
 - on-device-first voice input in the chat composer;
+- labelling a wrong assistant answer in the thread, and exporting the collected reports as one redacted file for diagnosis;
 - adaptive connected-N launcher artwork, including round and monochrome variants;
 - evidence and dates on every search result;
 - Room persistence with cascading deletion;
@@ -60,6 +61,25 @@ If the active search corpus exceeds 1 MiB, the app refuses to truncate or send i
 The microphone control in the **Assistant** composer requests `RECORD_AUDIO` only after it is tapped. On Android 12 or newer, the app prefers an available on-device recognizer. If on-device recognition is unavailable, the app explains that the phone's speech provider may process audio remotely and asks before enabling that fallback for the current app session.
 
 Network App never saves audio files, logs recognized speech, or includes audio in Room or encrypted backups. Only the final transcript is appended to the editable field. Partial results are shown only while listening, transcripts that would exceed 4,000 characters are rejected without changing the existing text, and voice input never automatically submits an AI request, search, or database write.
+
+## Assistant feedback
+
+The assistant is wrong sometimes: it attaches a note to the wrong person, stores a job as a need, or misses something that was plainly stated. Every answer that came from the gateway carries a **Report a problem** action underneath it, which is where those faults get recorded while the evidence is still on screen.
+
+1. Tap **Report a problem** under the answer.
+2. Pick what went wrong. The labels are fixed - wrong person, missed something, invented something, wrong record type, wrong date, bad search results, misunderstood the request, something else - so reports can be counted and grouped later. Add a note if the label does not say enough.
+3. The report is saved locally with a copy of the message, the answer, and the proposal or search results behind it. Nothing is sent anywhere.
+
+A report copies the response into itself rather than pointing at it, because the chat thread is memory-only: the proposal card disappears the moment it is applied or a new chat starts. That makes each report readable long after the conversation is gone, and it survives a backup restore that replaces every person.
+
+**Settings → Assistant feedback** lists what has been collected, says how many are new since the last export, and offers two actions:
+
+- **Export reports** writes every stored report to one JSON file and opens the system share sheet, so the file goes wherever you choose. **Replace people with placeholders** is on by default: saved people become stable placeholders (`Person 1`, `Person 2`, `Me`), and emails, links, and phone-shaped numbers are removed. The placeholders are stable within a report, so a wrong-target fault still reads correctly as *the note about Person 2 was attached to Person 5*. Two limits are stated in the export dialog and are real: someone not yet saved in the app cannot be detected and may still be named in quoted text, and a first name shared by two saved people collapses to `<a saved person>` rather than naming the wrong one. Turning redaction off exports the real names and conversation text; that file must be kept out of version control, issue trackers, and anywhere it could become public.
+- **Delete all** removes every stored report and every exported copy left in the app's cache. People and records are untouched.
+
+The exported document is self-describing. It carries its own name and version, whether it was redacted, the installed app version, counts by label and by stage, the meaning of every label, and one entry per report with the message, the answer, and the flattened proposal or search results. Contact values never reach a report: a proposal that changed a contact field records that it happened, without the value.
+
+The intended loop is: label the bad answers as they happen, export when a few have collected, and hand the file to whoever is fixing the prompts and schemas. Exported reports stay in the database and are marked as already exported, so the next export shows what is new without losing history. Files named `assistant-feedback-*.json` are gitignored so a report saved into the repository cannot be committed by accident.
 
 ## Privacy and backup
 
@@ -133,10 +153,12 @@ The script verifies the active GitHub account and repository visibility, prevent
 - Room schema version 2 adds reviewed-interaction origin, need/capability provenance, and capability lifecycle state while preserving version-1 installations and backups.
 - Room schema version 3 moves organization and role off the person onto an `affiliations` table, so a person can hold several concurrent positions. The migration turns each stored pair into one current position, and backups written before version 3 are rebuilt the same way on restore.
 - Room schema version 4 adds a `facts` table for background records and a work/education kind on each position. Existing positions migrate as work, and older backups restore with no background records because there was no way to write one.
+- Room schema version 5 adds a standalone `ai_feedback` table for reported assistant answers. It has no foreign keys and is excluded from the encrypted backup: it is diagnostic data about the assistant rather than a network record, so it survives a restore that replaces every person.
 - Repository boundary and state-flow presentation with simple application-owned dependency wiring.
 - Local deterministic matching in `NetworkMatcher`, reachable without AI from the **People** tab.
 - Chat routing and privacy-scoped history in `ChatRouter`; conversation state in `ChatModels`.
 - Bounded gateway REST client with validated structured capture coverage and evidence-ID search results.
 - Lifecycle-managed Android speech recognition with on-device preference and a disclosed session-only fallback.
 - Encrypted backup codec separated from the GitHub transport.
+- Feedback capture, placeholder redaction, and report building in `feedback`, kept free of Android types so all three are unit-tested.
 - No backend, account, analytics, telemetry, contact scraping, automatic address-book import, autonomous outreach, or AI deletion.

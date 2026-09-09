@@ -50,6 +50,14 @@ It excludes contact values, archived people, closed needs, inactive capabilities
 
 The assistant must return existing person and evidence IDs. The app rejects unknown or mismatched IDs and always displays exact stored evidence and dates. AI results are suggestions, not facts or proof of willingness or availability. Network App never contacts or introduces anyone automatically.
 
+## Reported assistant answers
+
+Reporting a wrong answer stores a copy of your message, the assistant's answer, and the proposal or search results behind it in a local database table. Nothing is transmitted when a report is saved. Contact values are never copied into a report: a proposal that changed a contact field is recorded as having done so, without the value.
+
+Reports leave the phone only when you export them from **Settings → Assistant feedback**, and only to the destination you pick in the system share sheet. Redaction is on by default and replaces saved people with stable placeholders and removes emails, links, and phone-shaped numbers. It cannot detect someone who is not saved in the app yet, so quoted text may still name a stranger; the export dialog says so before the file is written. Exporting without redaction produces a file containing real names and conversation text.
+
+Exported files are written to the app's private cache and each export deletes the ones before it. **Delete all** removes every stored report and every cached export. Reports are excluded from the encrypted GitHub backup, so they are never uploaded.
+
 ## Credentials and provider processing
 
 The access token is entered after installation and stored in Android encrypted preferences. It is excluded from Room and encrypted GitHub backups. A secret stored on a mobile device may still be extracted from a rooted, compromised, or reverse-engineered device; issue one token per device and revoke it on the gateway if a device is lost.

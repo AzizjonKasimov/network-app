@@ -26,3 +26,6 @@ keystore.properties
 captures/
 .DS_Store
 Thumbs.db
+
+# Exported assistant feedback quotes real conversations
+assistant-feedback-*.json

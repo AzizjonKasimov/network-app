@@ -27,7 +27,13 @@ import com.azizjon.network.data.NeedEntity
 import com.azizjon.network.data.NetworkSnapshot
 import com.azizjon.network.data.AiWriteProposal
 import com.azizjon.network.data.PersonDraft
+import com.azizjon.network.data.AiFeedbackEntity
 import com.azizjon.network.data.PersonEntity
+import com.azizjon.network.feedback.AiFeedbackLabel
+import com.azizjon.network.feedback.FeedbackRedactor
+import com.azizjon.network.feedback.FeedbackReport
+import com.azizjon.network.feedback.buildFeedback
+import com.azizjon.network.feedback.installedAppVersion
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -36,6 +42,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -49,6 +56,14 @@ data class BackupUiState(
     val busy: Boolean = false,
 )
 
+data class FeedbackUiState(
+    val reports: List<AiFeedbackEntity> = emptyList(),
+    val exporting: Boolean = false,
+) {
+    /** Reports filed since the last export, which is what still needs sending. */
+    val unexported: Int get() = reports.count { it.exportedAt == null }
+}
+
 class NetworkViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as NetworkApplication
     private val repository = app.repository
@@ -57,6 +72,7 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
     private val gatewaySettings = app.gatewaySettings
     private val gatewayClient = app.gatewayClient
     private val captureDraftStore = app.captureDraftStore
+    private val feedbackExporter = app.feedbackExporter
 
     val snapshot: StateFlow<NetworkSnapshot> = repository.observeSnapshot().stateIn(
         viewModelScope,
@@ -79,6 +95,18 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
     /** The question waiting on the one-time full-network disclosure, if any. */
     private val _searchConsentRequest = MutableStateFlow<String?>(null)
     val searchConsentRequest: StateFlow<String?> = _searchConsentRequest.asStateFlow()
+
+    private val _feedbackExporting = MutableStateFlow(false)
+
+    val feedbackState: StateFlow<FeedbackUiState> = combine(
+        repository.observeFeedback(),
+        _feedbackExporting,
+    ) { reports, exporting -> FeedbackUiState(reports, exporting) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FeedbackUiState())
+
+    /** The assistant message the report sheet is open for, if any. */
+    private val _feedbackTarget = MutableStateFlow<ChatMessage?>(null)
+    val feedbackTarget: StateFlow<ChatMessage?> = _feedbackTarget.asStateFlow()
 
     private val _gatewaySettingsState = MutableStateFlow(gatewaySettings.state)
     val gatewaySettingsState: StateFlow<GatewaySettingsState> = _gatewaySettingsState.asStateFlow()
@@ -300,6 +328,113 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         _chat.value = ChatState()
     }
 
+    /**
+     * Opens the report sheet for one assistant response.
+     *
+     * Only assistant turns can be reported, and only once: a second report on
+     * the same message would duplicate the same evidence under a second label
+     * without adding anything, so the thread stops offering it.
+     */
+    fun startFeedback(messageId: Long) {
+        val message = _chat.value.messages.firstOrNull { it.id == messageId } ?: return
+        if (message.role != ChatRole.ASSISTANT || message.reportedLabel != null) return
+        _feedbackTarget.value = message
+    }
+
+    fun dismissFeedback() {
+        _feedbackTarget.value = null
+    }
+
+    /**
+     * Stores the report, copying the response into it as it goes.
+     *
+     * Nothing is sent anywhere. The report sits in the local database until the
+     * user exports it from Settings and chooses where it goes.
+     */
+    fun submitFeedback(label: AiFeedbackLabel, note: String) {
+        val message = _feedbackTarget.value ?: return
+        _feedbackTarget.value = null
+        viewModelScope.launch {
+            try {
+                repository.recordFeedback(
+                    buildFeedback(
+                        message = message,
+                        userMessage = precedingUserMessage(message.id),
+                        label = label,
+                        note = note,
+                        appVersion = installedAppVersion(app),
+                    ),
+                )
+                updateMessage(message.id) { it.copy(reportedLabel = label.id) }
+                showMessage("Reported. Export the collected reports from Settings.")
+            } catch (error: Exception) {
+                showMessage(error.message ?: "Could not save the report")
+            }
+        }
+    }
+
+    /**
+     * Writes every stored report to one file and opens the share sheet.
+     *
+     * [redact] swaps saved people for stable placeholders. It is the default
+     * because a report is about the assistant, not about who anyone is, and
+     * because the file is about to leave the phone.
+     */
+    fun exportFeedback(redact: Boolean) {
+        if (_feedbackExporting.value) return
+        viewModelScope.launch {
+            _feedbackExporting.value = true
+            try {
+                val items = repository.allFeedback()
+                if (items.isEmpty()) {
+                    showMessage("There are no reports to export")
+                    return@launch
+                }
+                val generatedAt = System.currentTimeMillis()
+                val people = if (redact) repository.snapshot().people else emptyList()
+                val file = withContext(Dispatchers.IO) {
+                    val json = FeedbackReport.build(
+                        items = items,
+                        appVersion = installedAppVersion(app),
+                        generatedAt = generatedAt,
+                        redactor = if (redact) FeedbackRedactor(people) else null,
+                    )
+                    feedbackExporter.write(json, FeedbackReport.fileName(generatedAt))
+                }
+                repository.markFeedbackExported(items.map { it.id }, generatedAt)
+                feedbackExporter.share(file)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                showMessage(error.message ?: "Could not export the reports")
+            } finally {
+                _feedbackExporting.value = false
+            }
+        }
+    }
+
+    fun deleteFeedback(id: Long) {
+        viewModelScope.launch {
+            try {
+                repository.deleteFeedback(id)
+            } catch (error: Exception) {
+                showMessage(error.message ?: "Could not delete the report")
+            }
+        }
+    }
+
+    fun clearAllFeedback() {
+        viewModelScope.launch {
+            try {
+                repository.clearFeedback()
+                withContext(Dispatchers.IO) { feedbackExporter.clearExports() }
+                showMessage("All assistant reports deleted")
+            } catch (error: Exception) {
+                showMessage(error.message ?: "Could not delete the reports")
+            }
+        }
+    }
+
     fun saveAccessToken(value: String) {
         try {
             gatewaySettings.saveToken(value)
@@ -377,7 +512,7 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                appendAssistant(aiFailureMessage(error), failed = true)
+                appendAssistant(aiFailureMessage(error), failed = true, fromGateway = true)
             } finally {
                 setPhase(ChatPhase.Idle)
             }
@@ -419,6 +554,7 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
             candidates.suggestions.isNotEmpty() -> appendAssistant(
                 "Which " + "${resolution.targetName} do you mean?",
                 ChatAttachment.TargetChoice(TargetChoiceState(text, resolution.targetName, candidates.suggestions)),
+                fromGateway = true,
             )
             else -> buildProposal(text, resolution.targetName, null, history)
         }
@@ -434,7 +570,7 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         // Search already sends every active person in the same request, so
         // replaying earlier turns here discloses nothing new.
         val reply = gatewayClient.search(query, snapshot.value, ChatRouter.searchScopedTurns(history))
-        appendAssistant(reply.assistantMessage, ChatAttachment.Search(reply.results))
+        appendAssistant(reply.assistantMessage, ChatAttachment.Search(reply.results), fromGateway = true)
     }
 
     private suspend fun buildProposal(
@@ -454,7 +590,11 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
             locale = Locale.getDefault().toLanguageTag(),
             history = ChatRouter.captureScopedTurns(history),
         )
-        appendAssistant(reply.assistantMessage, ChatAttachment.Proposal(reply.proposal, caveat = reply.caveat))
+        appendAssistant(
+            reply.assistantMessage,
+            ChatAttachment.Proposal(reply.proposal, caveat = reply.caveat),
+            fromGateway = true,
+        )
     }
 
     /**
@@ -483,7 +623,11 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
             previousProposal = proposal,
         )
         clearAttachment(messageId)
-        appendAssistant(reply.assistantMessage, ChatAttachment.Proposal(reply.proposal, caveat = reply.caveat))
+        appendAssistant(
+            reply.assistantMessage,
+            ChatAttachment.Proposal(reply.proposal, caveat = reply.caveat),
+            fromGateway = true,
+        )
     }
 
     private fun appendUser(text: String) = append(ChatRole.USER, text, null, false)
@@ -492,9 +636,16 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         text: String,
         attachment: ChatAttachment? = null,
         failed: Boolean = false,
-    ) = append(ChatRole.ASSISTANT, text, attachment, failed)
+        fromGateway: Boolean = false,
+    ) = append(ChatRole.ASSISTANT, text, attachment, failed, fromGateway)
 
-    private fun append(role: ChatRole, text: String, attachment: ChatAttachment?, failed: Boolean) {
+    private fun append(
+        role: ChatRole,
+        text: String,
+        attachment: ChatAttachment?,
+        failed: Boolean,
+        fromGateway: Boolean = false,
+    ) {
         val message = ChatMessage(
             id = nextMessageId++,
             role = role,
@@ -502,6 +653,7 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
             attachment = attachment,
             failed = failed,
             sentAt = System.currentTimeMillis(),
+            fromGateway = fromGateway,
         )
         _chat.value = _chat.value.copy(messages = _chat.value.messages + message)
     }
@@ -513,6 +665,10 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun clearAttachment(messageId: Long) = updateMessage(messageId) { it.copy(attachment = null) }
+
+    /** The turn that produced a response, so a report shows both halves. */
+    private fun precedingUserMessage(messageId: Long): String =
+        _chat.value.messages.lastOrNull { it.id < messageId && it.role == ChatRole.USER }?.text.orEmpty()
 
     private fun messagesBefore(messageId: Long): List<ChatMessage> =
         _chat.value.messages.takeWhile { it.id != messageId }

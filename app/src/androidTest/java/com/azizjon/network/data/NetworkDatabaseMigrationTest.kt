@@ -35,6 +35,7 @@ class NetworkDatabaseMigrationTest {
                 NetworkDatabase.MIGRATION_1_2,
                 NetworkDatabase.MIGRATION_2_3,
                 NetworkDatabase.MIGRATION_3_4,
+                NetworkDatabase.MIGRATION_4_5,
             )
             .build()
         try {
@@ -55,6 +56,19 @@ class NetworkDatabaseMigrationTest {
             // A position recorded before the work/education split is work.
             assertFalse(affiliation.isEducation)
             assertTrue(dao.allFacts().isEmpty())
+            // Feedback arrives empty on an upgrade and is writable straight away.
+            assertTrue(dao.allFeedback().isEmpty())
+            dao.insertFeedback(
+                AiFeedbackEntity(
+                    stage = AiFeedbackEntity.Stage.PROPOSAL,
+                    label = "wrong_target",
+                    userMessage = "synthetic message",
+                    assistantMessage = "synthetic answer",
+                    appVersion = "test",
+                    createdAt = 1_000L,
+                ),
+            )
+            assertEquals("wrong_target", dao.allFeedback().single().label)
         } finally {
             database.close()
         }

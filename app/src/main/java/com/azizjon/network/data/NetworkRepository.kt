@@ -166,6 +166,38 @@ class NetworkRepository(private val dao: NetworkDao) {
         dao.touchPerson(item.personId, System.currentTimeMillis())
     }
 
+    fun observeFeedback(): Flow<List<AiFeedbackEntity>> = dao.observeFeedback()
+
+    /**
+     * Stores one report about a wrong assistant response.
+     *
+     * The caller passes the response text rather than an id because the chat
+     * thread is memory-only: by the time the report is read the message it
+     * describes no longer exists anywhere.
+     */
+    suspend fun recordFeedback(feedback: AiFeedbackEntity): Long {
+        require(feedback.label.isNotBlank()) { "Choose what went wrong" }
+        return dao.insertFeedback(
+            feedback.copy(
+                note = feedback.note.trim().take(MAX_FEEDBACK_NOTE_CHARACTERS),
+                userMessage = feedback.userMessage.take(MAX_FEEDBACK_TEXT_CHARACTERS),
+                assistantMessage = feedback.assistantMessage.take(MAX_FEEDBACK_TEXT_CHARACTERS),
+                assistantDetail = feedback.assistantDetail.take(MAX_FEEDBACK_DETAIL_CHARACTERS),
+            ),
+        )
+    }
+
+    suspend fun allFeedback(): List<AiFeedbackEntity> = dao.allFeedback()
+
+    suspend fun markFeedbackExported(ids: List<Long>, exportedAt: Long) {
+        if (ids.isEmpty()) return
+        dao.markFeedbackExported(ids, exportedAt)
+    }
+
+    suspend fun deleteFeedback(id: Long) = dao.deleteFeedback(id)
+
+    suspend fun clearFeedback() = dao.clearFeedback()
+
     suspend fun snapshot(): NetworkSnapshot = NetworkSnapshot(
         people = dao.allPeople(),
         interactions = dao.allInteractions(),
@@ -183,4 +215,11 @@ class NetworkRepository(private val dao: NetworkDao) {
         affiliations = snapshot.affiliations,
         facts = snapshot.facts,
     )
+
+    companion object {
+        /** Caps so one enormous note cannot bloat the database or a report. */
+        const val MAX_FEEDBACK_NOTE_CHARACTERS = 1_000
+        const val MAX_FEEDBACK_TEXT_CHARACTERS = 4_000
+        const val MAX_FEEDBACK_DETAIL_CHARACTERS = 8_000
+    }
 }

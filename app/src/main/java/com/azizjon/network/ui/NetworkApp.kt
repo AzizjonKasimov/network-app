@@ -37,6 +37,8 @@ fun NetworkApp(viewModel: NetworkViewModel) {
     val searchConsentRequest by viewModel.searchConsentRequest.collectAsStateWithLifecycle()
     val gatewaySettingsState by viewModel.gatewaySettingsState.collectAsStateWithLifecycle()
     val speechFallbackAllowed by viewModel.speechFallbackAllowed.collectAsStateWithLifecycle()
+    val feedbackState by viewModel.feedbackState.collectAsStateWithLifecycle()
+    val feedbackTarget by viewModel.feedbackTarget.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var section by rememberSaveable { mutableStateOf(AppSection.CHAT) }
@@ -98,6 +100,7 @@ fun NetworkApp(viewModel: NetworkViewModel) {
                         snapshot = snapshot,
                         draft = composerDraft,
                         searchConsentRequest = searchConsentRequest,
+                        feedbackTarget = feedbackTarget,
                         speechFallbackAllowed = speechFallbackAllowed,
                         onDraftChange = viewModel::updateComposerDraft,
                         onSend = viewModel::sendChatMessage,
@@ -110,6 +113,9 @@ fun NetworkApp(viewModel: NetworkViewModel) {
                         onApplyProposal = viewModel::applyChatProposal,
                         onConfirmSearchConsent = viewModel::confirmSearchConsent,
                         onDismissSearchConsent = viewModel::dismissSearchConsent,
+                        onReportMessage = viewModel::startFeedback,
+                        onDismissFeedback = viewModel::dismissFeedback,
+                        onSubmitFeedback = viewModel::submitFeedback,
                         onNewChat = viewModel::startNewChat,
                     )
                     AppSection.PEOPLE -> PeopleScreen(
@@ -121,12 +127,16 @@ fun NetworkApp(viewModel: NetworkViewModel) {
                         backupState = backupState,
                         gatewaySettingsState = gatewaySettingsState,
                         updateState = updateState,
+                        feedbackState = feedbackState,
                         onSaveAccessToken = viewModel::saveAccessToken,
                         onClearAccessToken = viewModel::clearAccessToken,
                         onRevokeAiSearchConsent = viewModel::revokeAiSearchConsent,
                         onSaveBackupConfig = viewModel::saveBackupConfig,
                         onBackupNow = viewModel::backupNow,
                         onRestore = viewModel::restoreFromGitHub,
+                        onExportFeedback = viewModel::exportFeedback,
+                        onDeleteFeedback = viewModel::deleteFeedback,
+                        onClearFeedback = viewModel::clearAllFeedback,
                     )
                 }
             }

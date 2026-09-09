@@ -15,8 +15,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CapabilityEntity::class,
         AffiliationEntity::class,
         FactEntity::class,
+        AiFeedbackEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class NetworkDatabase : RoomDatabase() {
@@ -30,7 +31,37 @@ abstract class NetworkDatabase : RoomDatabase() {
                 context.applicationContext,
                 NetworkDatabase::class.java,
                 "network.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
+        }
+
+        /**
+         * Adds the table that holds assistant responses the user marked wrong.
+         *
+         * It stands alone on purpose: no foreign keys to people or
+         * interactions, so a report keeps its evidence after the records it
+         * describes are corrected, deleted, or replaced by a restore.
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE ai_feedback (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        stage TEXT NOT NULL,
+                        label TEXT NOT NULL,
+                        note TEXT NOT NULL,
+                        userMessage TEXT NOT NULL,
+                        assistantMessage TEXT NOT NULL,
+                        assistantDetail TEXT NOT NULL,
+                        appVersion TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        exportedAt INTEGER
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL("CREATE INDEX index_ai_feedback_createdAt ON ai_feedback(createdAt)")
+                database.execSQL("CREATE INDEX index_ai_feedback_exportedAt ON ai_feedback(exportedAt)")
+            }
         }
 
         /**

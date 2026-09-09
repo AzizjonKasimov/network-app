@@ -272,6 +272,24 @@ abstract class NetworkDao {
     @Query("SELECT * FROM facts ORDER BY id")
     abstract suspend fun allFacts(): List<FactEntity>
 
+    @Query("SELECT * FROM ai_feedback ORDER BY createdAt DESC, id DESC")
+    abstract fun observeFeedback(): Flow<List<AiFeedbackEntity>>
+
+    @Query("SELECT * FROM ai_feedback ORDER BY createdAt, id")
+    abstract suspend fun allFeedback(): List<AiFeedbackEntity>
+
+    @Insert
+    abstract suspend fun insertFeedback(feedback: AiFeedbackEntity): Long
+
+    @Query("DELETE FROM ai_feedback WHERE id = :id")
+    abstract suspend fun deleteFeedback(id: Long)
+
+    @Query("DELETE FROM ai_feedback")
+    abstract suspend fun clearFeedback()
+
+    @Query("UPDATE ai_feedback SET exportedAt = :exportedAt WHERE id IN (:ids)")
+    abstract suspend fun markFeedbackExported(ids: List<Long>, exportedAt: Long)
+
     @Query("DELETE FROM interactions")
     protected abstract suspend fun clearInteractions()
 

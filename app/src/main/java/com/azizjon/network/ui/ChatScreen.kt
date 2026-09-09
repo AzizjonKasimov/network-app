@@ -37,6 +37,7 @@ import com.azizjon.network.ai.ChatState
 import com.azizjon.network.ai.GatewayClient
 import com.azizjon.network.data.AiWriteProposal
 import com.azizjon.network.data.NetworkSnapshot
+import com.azizjon.network.feedback.AiFeedbackLabel
 
 /**
  * The single conversational surface for capture, correction, and search.
@@ -53,6 +54,7 @@ fun ChatScreen(
     snapshot: NetworkSnapshot,
     draft: String,
     searchConsentRequest: String?,
+    feedbackTarget: ChatMessage?,
     speechFallbackAllowed: Boolean,
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
@@ -65,6 +67,9 @@ fun ChatScreen(
     onApplyProposal: () -> Unit,
     onConfirmSearchConsent: () -> Unit,
     onDismissSearchConsent: () -> Unit,
+    onReportMessage: (Long) -> Unit,
+    onDismissFeedback: () -> Unit,
+    onSubmitFeedback: (AiFeedbackLabel, String) -> Unit,
     onNewChat: () -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -107,6 +112,7 @@ fun ChatScreen(
                             onUpdateProposal = onUpdateProposal,
                             onDiscardProposal = onDiscardProposal,
                             onApplyProposal = onApplyProposal,
+                            onReport = onReportMessage,
                         )
                     }
                     if (busy) {
@@ -130,6 +136,13 @@ fun ChatScreen(
     if (searchConsentRequest != null) {
         SearchConsentDialog(onConfirm = onConfirmSearchConsent, onDismiss = onDismissSearchConsent)
     }
+    if (feedbackTarget != null) {
+        FeedbackDialog(
+            responsePreview = feedbackTarget.text,
+            onDismiss = onDismissFeedback,
+            onSubmit = onSubmitFeedback,
+        )
+    }
 }
 
 @Composable
@@ -143,6 +156,7 @@ private fun ChatMessageRow(
     onUpdateProposal: (AiWriteProposal) -> Unit,
     onDiscardProposal: () -> Unit,
     onApplyProposal: () -> Unit,
+    onReport: (Long) -> Unit,
 ) {
     val fromUser = message.role == ChatRole.USER
     Column(
@@ -186,6 +200,31 @@ private fun ChatMessageRow(
             is ChatAttachment.TargetChoice -> TargetChoiceCard(attachment.value, snapshot, busy, onChooseTarget)
             is ChatAttachment.Search -> SearchResultsCard(attachment.results, onOpenPerson)
             null -> Unit
+        }
+        if (message.fromGateway) {
+            FeedbackRow(reportedLabel = message.reportedLabel, enabled = !busy) { onReport(message.id) }
+        }
+    }
+}
+
+/**
+ * The one place a bad answer can be labelled, right under the answer itself.
+ *
+ * It has to sit here rather than in Settings: the proposal card above it is
+ * about to be applied or discarded, and once it is gone there is nothing left
+ * to point at.
+ */
+@Composable
+private fun FeedbackRow(reportedLabel: String?, enabled: Boolean, onReport: () -> Unit) {
+    if (reportedLabel != null) {
+        Text(
+            "Reported: " + AiFeedbackLabel.titleFor(reportedLabel),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    } else {
+        TextButton(onClick = onReport, enabled = enabled) {
+            Text("Report a problem", style = MaterialTheme.typography.labelMedium)
         }
     }
 }
