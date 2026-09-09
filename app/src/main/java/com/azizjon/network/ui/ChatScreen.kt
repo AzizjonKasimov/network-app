@@ -26,6 +26,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -36,6 +40,7 @@ import com.azizjon.network.ai.ChatRole
 import com.azizjon.network.ai.ChatState
 import com.azizjon.network.ai.GatewayClient
 import com.azizjon.network.data.AiWriteProposal
+import com.azizjon.network.data.MoveDestination
 import com.azizjon.network.data.NetworkSnapshot
 import com.azizjon.network.feedback.AiFeedbackLabel
 
@@ -68,12 +73,14 @@ fun ChatScreen(
     onConfirmSearchConsent: () -> Unit,
     onDismissSearchConsent: () -> Unit,
     onReportMessage: (Long) -> Unit,
+    onMoveInteraction: (Long, MoveDestination) -> Unit,
     onDismissFeedback: () -> Unit,
     onSubmitFeedback: (AiFeedbackLabel, String) -> Unit,
     onNewChat: () -> Unit,
 ) {
     val listState = rememberLazyListState()
     val busy = chat.phase.busy
+    var moveRequest by remember { mutableStateOf<MoveRequest?>(null) }
     val pendingName = chat.pendingProposal?.second?.targetName
 
     LaunchedEffect(chat.messages.size, chat.phase) {
@@ -113,6 +120,16 @@ fun ChatScreen(
                             onDiscardProposal = onDiscardProposal,
                             onApplyProposal = onApplyProposal,
                             onReport = onReportMessage,
+                            onMoveNote = { saved ->
+                                saved.savedInteractionId?.let { id ->
+                                    moveRequest = MoveRequest(
+                                        interactionId = id,
+                                        note = saved.proposal.rawInput,
+                                        fromName = saved.savedPersonId?.let(snapshot::person)?.name
+                                            ?: saved.proposal.targetName,
+                                    )
+                                }
+                            },
                         )
                     }
                     if (busy) {
@@ -143,7 +160,22 @@ fun ChatScreen(
             onSubmit = onSubmitFeedback,
         )
     }
+    moveRequest?.let { request ->
+        MoveNoteDialog(
+            note = request.note,
+            fromName = request.fromName,
+            snapshot = snapshot,
+            onDismiss = { moveRequest = null },
+            onMove = { destination ->
+                onMoveInteraction(request.interactionId, destination)
+                moveRequest = null
+            },
+        )
+    }
 }
+
+/** An applied capture the user wants re-filed, held while the dialog is open. */
+private data class MoveRequest(val interactionId: Long, val note: String, val fromName: String)
 
 @Composable
 private fun ChatMessageRow(
@@ -157,6 +189,7 @@ private fun ChatMessageRow(
     onDiscardProposal: () -> Unit,
     onApplyProposal: () -> Unit,
     onReport: (Long) -> Unit,
+    onMoveNote: (ChatAttachment.Proposal) -> Unit,
 ) {
     val fromUser = message.role == ChatRole.USER
     Column(
@@ -189,9 +222,11 @@ private fun ChatMessageRow(
                 snapshot = snapshot,
                 applied = attachment.applied,
                 savedPersonId = attachment.savedPersonId,
+                savedInteractionId = attachment.savedInteractionId,
                 caveat = attachment.caveat,
                 busy = busy,
                 onChangeTarget = onChangeProposalTarget,
+                onMoveNote = { onMoveNote(attachment) },
                 onUpdate = onUpdateProposal,
                 onDiscard = onDiscardProposal,
                 onApply = onApplyProposal,

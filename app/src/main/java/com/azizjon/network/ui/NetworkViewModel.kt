@@ -23,6 +23,7 @@ import com.azizjon.network.data.AffiliationEntity
 import com.azizjon.network.data.CapabilityEntity
 import com.azizjon.network.data.FactEntity
 import com.azizjon.network.data.InteractionEntity
+import com.azizjon.network.data.MoveDestination
 import com.azizjon.network.data.NeedEntity
 import com.azizjon.network.data.NetworkSnapshot
 import com.azizjon.network.data.AiWriteProposal
@@ -171,6 +172,24 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
 
     fun addFact(personId: Long, text: String) = mutate { repository.addFact(personId, text) }
 
+    /**
+     * Moves a note filed against the wrong person onto the right one.
+     *
+     * The assistant cannot do this itself - it is scoped to one person per
+     * request, and moving records between people is exactly the kind of
+     * cross-person write that boundary exists to prevent. So the app performs
+     * it directly, from an explicit choice the user just made.
+     */
+    fun moveInteraction(
+        interactionId: Long,
+        destination: MoveDestination,
+        onMoved: (Long) -> Unit = {},
+    ) = mutate {
+        val result = repository.moveInteraction(interactionId, destination)
+        showMessage("Moved ${result.summary} to ${result.personName}")
+        onMoved(result.personId)
+    }
+
     fun deleteFact(item: FactEntity) = mutate { repository.deleteFact(item) }
 
     fun setAffiliationCurrent(item: AffiliationEntity, current: Boolean) = mutate {
@@ -287,7 +306,14 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
                 val result = repository.applyAiProposal(proposal)
                 updateMessage(messageId) { message ->
                     val existing = message.attachment as? ChatAttachment.Proposal
-                    message.copy(attachment = ChatAttachment.Proposal(proposal, result.personId, existing?.caveat))
+                    message.copy(
+                        attachment = ChatAttachment.Proposal(
+                            proposal = proposal,
+                            savedPersonId = result.personId,
+                            caveat = existing?.caveat,
+                            savedInteractionId = result.auditInteractionId,
+                        ),
+                    )
                 }
                 appendAssistant("Saved for ${proposal.targetName}.")
                 scheduleAutoBackup()

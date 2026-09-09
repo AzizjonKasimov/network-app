@@ -61,9 +61,11 @@ fun ProposalCard(
     snapshot: NetworkSnapshot,
     applied: Boolean,
     savedPersonId: Long?,
+    savedInteractionId: Long?,
     caveat: String?,
     busy: Boolean,
     onChangeTarget: () -> Unit,
+    onMoveNote: () -> Unit,
     onUpdate: (AiWriteProposal) -> Unit,
     onDiscard: () -> Unit,
     onApply: () -> Unit,
@@ -124,6 +126,13 @@ fun ProposalCard(
                 savedPersonId?.let { id ->
                     OutlinedButton(onClick = { onOpenPerson(id) }, modifier = Modifier.fillMaxWidth()) {
                         Text("Open ${proposal.targetName}")
+                    }
+                }
+                // A wrong target is usually spotted right after saving, so the
+                // remedy belongs here rather than only on the person's screen.
+                if (savedInteractionId != null) {
+                    TextButton(onClick = onMoveNote, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                        Text("Wrong person? Move this note")
                     }
                 }
                 return@Column

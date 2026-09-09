@@ -87,6 +87,11 @@ fun NetworkApp(viewModel: NetworkViewModel) {
                     onAddAffiliation = viewModel::addAffiliation,
                     onAddFact = viewModel::addFact,
                     onDeleteInteraction = viewModel::deleteInteraction,
+                    onMoveInteraction = { interactionId, destination ->
+                        // Follow the note to its new home: seeing it land is the
+                        // only confirmation that the right person was chosen.
+                        viewModel.moveInteraction(interactionId, destination) { selectedPersonId = it }
+                    },
                     onDeleteNeed = viewModel::deleteNeed,
                     onDeleteCapability = viewModel::deleteCapability,
                     onDeleteAffiliation = viewModel::deleteAffiliation,
@@ -114,6 +119,9 @@ fun NetworkApp(viewModel: NetworkViewModel) {
                         onConfirmSearchConsent = viewModel::confirmSearchConsent,
                         onDismissSearchConsent = viewModel::dismissSearchConsent,
                         onReportMessage = viewModel::startFeedback,
+                        onMoveInteraction = { interactionId, destination ->
+                            viewModel.moveInteraction(interactionId, destination)
+                        },
                         onDismissFeedback = viewModel::dismissFeedback,
                         onSubmitFeedback = viewModel::submitFeedback,
                         onNewChat = viewModel::startNewChat,

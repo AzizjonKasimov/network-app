@@ -35,6 +35,13 @@ sealed interface ChatAttachment {
         val proposal: AiWriteProposal,
         val savedPersonId: Long? = null,
         val caveat: String? = null,
+        /**
+         * The interaction the applied write created.
+         *
+         * Kept so the card can still offer to move the whole capture after it
+         * has been saved, which is when a wrong target is usually noticed.
+         */
+        val savedInteractionId: Long? = null,
     ) : ChatAttachment {
         val applied: Boolean get() = savedPersonId != null
     }

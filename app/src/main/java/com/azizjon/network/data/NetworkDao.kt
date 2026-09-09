@@ -272,6 +272,78 @@ abstract class NetworkDao {
     @Query("SELECT * FROM facts ORDER BY id")
     abstract suspend fun allFacts(): List<FactEntity>
 
+    @Query("UPDATE interactions SET personId = :personId WHERE id = :id")
+    protected abstract suspend fun repointInteraction(id: Long, personId: Long): Int
+
+    @Query("UPDATE needs SET personId = :personId WHERE sourceInteractionId = :interactionId")
+    protected abstract suspend fun repointNeeds(interactionId: Long, personId: Long): Int
+
+    @Query("UPDATE capabilities SET personId = :personId WHERE sourceInteractionId = :interactionId")
+    protected abstract suspend fun repointCapabilities(interactionId: Long, personId: Long): Int
+
+    @Query("UPDATE affiliations SET personId = :personId WHERE sourceInteractionId = :interactionId")
+    protected abstract suspend fun repointAffiliations(interactionId: Long, personId: Long): Int
+
+    @Query("UPDATE facts SET personId = :personId WHERE sourceInteractionId = :interactionId")
+    protected abstract suspend fun repointFacts(interactionId: Long, personId: Long): Int
+
+    /**
+     * Moves one note, and everything that note created, onto another person.
+     *
+     * A capture is filed against whoever the assistant resolved from the
+     * message, and that is sometimes the wrong person - most often somebody
+     * mentioned nearby rather than the person being described. Until this
+     * existed the only remedy was deleting the records and retyping the note.
+     *
+     * Scoped to a single interaction on purpose. Derived records carry the id of
+     * the interaction that created them, so "everything this note created" is an
+     * exact set rather than a guess, and anything the person gained some other
+     * way stays where it is. Profile fields are the deliberate exception: a
+     * patch overwrote a column in place and leaves nothing to trace back, so it
+     * cannot move and the caller says so before asking to confirm.
+     */
+    @Transaction
+    open suspend fun moveInteraction(
+        interactionId: Long,
+        destination: MoveDestination,
+        now: Long,
+    ): MoveResult {
+        val interaction = interaction(interactionId)
+            ?: throw IllegalArgumentException("That note no longer exists")
+        val source = interaction.personId
+
+        val target = when (destination) {
+            is MoveDestination.Existing ->
+                person(destination.personId)
+                    ?.also {
+                        require(!it.archived) { "${it.name} is archived. Restore them before moving a note there." }
+                    }
+                    ?: throw IllegalArgumentException("The chosen person no longer exists")
+            is MoveDestination.NewPerson -> {
+                val name = destination.name.trim()
+                require(name.isNotBlank()) { "Name is required" }
+                require(name.length <= 200) { "That name is too long" }
+                require(personByName(name) == null) { "$name already exists. Choose them from the list instead." }
+                val id = savePerson(PersonEntity(name = name, createdAt = now, updatedAt = now))
+                person(id) ?: throw IllegalStateException("The new person could not be created")
+            }
+        }
+        require(target.id != source) { "That note is already on ${target.name}" }
+
+        repointInteraction(interactionId, target.id)
+        val moved = MoveResult(
+            personId = target.id,
+            personName = target.name,
+            needs = repointNeeds(interactionId, target.id),
+            capabilities = repointCapabilities(interactionId, target.id),
+            affiliations = repointAffiliations(interactionId, target.id),
+            facts = repointFacts(interactionId, target.id),
+        )
+        touchPerson(source, now)
+        touchPerson(target.id, now)
+        return moved
+    }
+
     @Query("SELECT * FROM ai_feedback ORDER BY createdAt DESC, id DESC")
     abstract fun observeFeedback(): Flow<List<AiFeedbackEntity>>
 

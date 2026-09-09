@@ -151,6 +151,13 @@ class NetworkRepository(private val dao: NetworkDao) {
     suspend fun applyAiProposal(proposal: AiWriteProposal): AiWriteResult =
         dao.applyAiProposal(proposal, System.currentTimeMillis())
 
+    /**
+     * Sends a note filed against the wrong person, and everything it created,
+     * to the right one.
+     */
+    suspend fun moveInteraction(interactionId: Long, destination: MoveDestination): MoveResult =
+        dao.moveInteraction(interactionId, destination, System.currentTimeMillis())
+
     suspend fun deleteInteraction(item: InteractionEntity) {
         dao.deleteInteraction(item.id)
         dao.touchPerson(item.personId, System.currentTimeMillis())

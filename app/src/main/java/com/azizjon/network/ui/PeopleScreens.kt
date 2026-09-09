@@ -44,6 +44,7 @@ import com.azizjon.network.data.AffiliationEntity
 import com.azizjon.network.data.CapabilityEntity
 import com.azizjon.network.data.FactEntity
 import com.azizjon.network.data.InteractionEntity
+import com.azizjon.network.data.MoveDestination
 import com.azizjon.network.data.NeedEntity
 import com.azizjon.network.data.NetworkSnapshot
 import com.azizjon.network.data.PersonDraft
@@ -195,6 +196,7 @@ fun PersonDetailScreen(
     onAddAffiliation: (Long, String, String, Boolean) -> Unit,
     onAddFact: (Long, String) -> Unit,
     onDeleteInteraction: (InteractionEntity) -> Unit,
+    onMoveInteraction: (Long, MoveDestination) -> Unit,
     onDeleteNeed: (NeedEntity) -> Unit,
     onDeleteCapability: (CapabilityEntity) -> Unit,
     onDeleteAffiliation: (AffiliationEntity) -> Unit,
@@ -205,6 +207,7 @@ fun PersonDetailScreen(
     var addKind by rememberSaveable(person.id) { mutableStateOf<RecordKind?>(null) }
     var confirmDelete by rememberSaveable(person.id) { mutableStateOf(false) }
     var addingAffiliation by rememberSaveable(person.id) { mutableStateOf(false) }
+    var movingInteraction by remember(person.id) { mutableStateOf<InteractionEntity?>(null) }
     val affiliations = snapshot.affiliationsFor(person.id)
     val facts = snapshot.factsFor(person.id)
     val interactions = snapshot.interactionsFor(person.id)
@@ -255,10 +258,11 @@ fun PersonDetailScreen(
             RecordSection("Interactions", interactions.size, { addKind = RecordKind.INTERACTION }) {
                 interactions.forEach { item ->
                     RecordCard(
-                        item.note,
-                        item.occurredAt,
-                        { onDeleteInteraction(item) },
-                        if (item.origin == InteractionEntity.ORIGIN_AI_REVIEWED) "AI-reviewed capture" else "",
+                        text = item.note,
+                        timestamp = item.occurredAt,
+                        onDelete = { onDeleteInteraction(item) },
+                        status = if (item.origin == InteractionEntity.ORIGIN_AI_REVIEWED) "AI-reviewed capture" else "",
+                        onMove = { movingInteraction = item },
                     )
                 }
             }
@@ -294,6 +298,18 @@ fun PersonDetailScreen(
             onSave = { organization, role, education ->
                 onAddAffiliation(person.id, organization, role, education)
                 addingAffiliation = false
+            },
+        )
+    }
+    movingInteraction?.let { item ->
+        MoveNoteDialog(
+            note = item.note,
+            fromName = person.name,
+            snapshot = snapshot,
+            onDismiss = { movingInteraction = null },
+            onMove = { destination ->
+                onMoveInteraction(item.id, destination)
+                movingInteraction = null
             },
         )
     }
@@ -411,13 +427,21 @@ private fun RecordSection(title: String, count: Int, onAdd: () -> Unit, content:
 }
 
 @Composable
-private fun RecordCard(text: String, timestamp: Long, onDelete: () -> Unit, status: String = "") {
+private fun RecordCard(
+    text: String,
+    timestamp: Long,
+    onDelete: () -> Unit,
+    status: String = "",
+    /** Offered only where re-filing makes sense, which today is a note. */
+    onMove: (() -> Unit)? = null,
+) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
             Text(text)
             if (status.isNotBlank()) Text(status, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(formatDate(timestamp), modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
+                if (onMove != null) TextButton(onClick = onMove) { Text("Move") }
                 TextButton(onClick = onDelete) { Text("Delete") }
             }
         }

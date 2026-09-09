@@ -15,6 +15,7 @@ The first native Android version includes:
 - a single chat thread that routes each message to capture or search, so there is no separate capture screen and search screen;
 - AI-powered natural-language capture and update proposals with editable review before saving;
 - follow-up corrections that revise the open proposal instead of restarting the capture;
+- moving a note, and every record it created, onto another person or a brand-new one when a capture lands on the wrong contact;
 - capture coverage that flags explicit facts kept only in the original interaction;
 - optional full-active-network AI search with evidence IDs, exact stored sources, and one-time consent;
 - on-device-first voice input in the chat composer;
@@ -47,6 +48,10 @@ The original applied text is stored verbatim as an `AI-reviewed capture` interac
 Positions are their own records rather than a single organization and role on the profile, so someone who is a CEO at one company and a CTO at another keeps both. The assistant proposes one entry per position, each editable and individually selectable before saving, and a position marked as study reads as education rather than a job.
 
 Anything explicitly stated that is not a position, a need, or a capability becomes a **Background** record: a product's user count, a notable event someone took part in, a piece of history. The assistant chooses in that order, so **Kept only in the original interaction** is now reserved for facts that cannot be attributed to this person at all. Background records are dated, editable, searchable, and citable as evidence in their own right.
+
+A capture sometimes lands on the wrong person, usually somebody mentioned beside the person actually being described. **Move** re-files it: open the person holding the note, find it under **Interactions**, and tap **Move**. One field both filters the people already saved and, when nothing matches, offers to create the person the note really belongs to. The note and every position, need, capability, and background record it created travel together, because each of those stores the id of the interaction that produced it; anything the person gained some other way stays put. Profile fields the capture changed stay behind and need checking by hand, since an overwritten column keeps no trace of where its value came from. The same action sits on the proposal card immediately after a capture is applied, which is when a wrong target is usually noticed.
+
+The assistant still cannot move records itself. It is scoped to one person per request, and moving data between people is exactly the cross-person write that boundary exists to prevent, so the app performs the move directly from a choice you just made. What changed is that a move request now gets told where the **Move** action is instead of only being refused.
 
 A refusal and an explanation are kept apart. The assistant refuses only what it cannot do safely - more than one person, a deletion, an unidentifiable target - and that discards the proposal. Anything it merely handled awkwardly is reported as a **How this was handled** note on the card, and the proposal stays complete and applicable.
 
@@ -156,6 +161,7 @@ The script verifies the active GitHub account and repository visibility, prevent
 - Room schema version 5 adds a standalone `ai_feedback` table for reported assistant answers. It has no foreign keys and is excluded from the encrypted backup: it is diagnostic data about the assistant rather than a network record, so it survives a restore that replaces every person.
 - Repository boundary and state-flow presentation with simple application-owned dependency wiring.
 - Local deterministic matching in `NetworkMatcher`, reachable without AI from the **People** tab.
+- Re-filing a misfiled capture in `NetworkDao.moveInteraction`, a single transaction that re-points the interaction and every record carrying its id, creating the destination person when the note belongs to somebody not yet saved.
 - Chat routing and privacy-scoped history in `ChatRouter`; conversation state in `ChatModels`.
 - Bounded gateway REST client with validated structured capture coverage and evidence-ID search results.
 - Lifecycle-managed Android speech recognition with on-device preference and a disclosed session-only fallback.

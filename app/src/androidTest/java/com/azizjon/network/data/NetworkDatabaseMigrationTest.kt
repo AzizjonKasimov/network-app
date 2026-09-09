@@ -101,6 +101,81 @@ class NetworkDatabaseMigrationTest {
         }
     }
 
+    /**
+     * The fault this fixes: a capture about one person filed under another,
+     * which used to leave deleting and retyping the note as the only remedy.
+     */
+    @Test
+    fun movingANoteCarriesTheRecordsItCreatedAndLeavesTheRestBehind() = runBlocking {
+        val database = Room.inMemoryDatabaseBuilder(context, NetworkDatabase::class.java).build()
+        try {
+            val dao = database.networkDao()
+            val wrongPerson = dao.savePerson(PersonEntity(name = "Synthetic Bastien", createdAt = 1, updatedAt = 1))
+            val noteId = dao.insertInteraction(
+                InteractionEntity(
+                    personId = wrongPerson,
+                    note = "Synthetic note that belongs to somebody else",
+                    occurredAt = 2,
+                    createdAt = 2,
+                    origin = InteractionEntity.ORIGIN_AI_REVIEWED,
+                ),
+            )
+            dao.insertNeed(NeedEntity(personId = wrongPerson, text = "From the note", lastConfirmedAt = 2, createdAt = 2, sourceInteractionId = noteId))
+            dao.insertCapability(CapabilityEntity(personId = wrongPerson, text = "From the note", lastConfirmedAt = 2, createdAt = 2, sourceInteractionId = noteId))
+            dao.insertAffiliation(AffiliationEntity(personId = wrongPerson, organization = "Northwind Labs", role = "CTO", lastConfirmedAt = 2, createdAt = 2, sourceInteractionId = noteId))
+            dao.insertFact(FactEntity(personId = wrongPerson, text = "From the note", lastConfirmedAt = 2, createdAt = 2, sourceInteractionId = noteId))
+            // Recorded by hand, so it is genuinely this person's and must not move.
+            dao.insertNeed(NeedEntity(personId = wrongPerson, text = "Recorded by hand", lastConfirmedAt = 3, createdAt = 3))
+
+            val moved = dao.moveInteraction(noteId, MoveDestination.NewPerson("Synthetic Alain"), now = 10)
+
+            assertEquals("Synthetic Alain", moved.personName)
+            assertEquals(4, moved.records)
+            assertEquals(moved.personId, dao.allInteractions().single().personId)
+            assertEquals(moved.personId, dao.allCapabilities().single().personId)
+            assertEquals(moved.personId, dao.allAffiliations().single().personId)
+            assertEquals(moved.personId, dao.allFacts().single().personId)
+
+            val needs = dao.allNeeds().associateBy { it.text }
+            assertEquals(moved.personId, needs.getValue("From the note").personId)
+            assertEquals(wrongPerson, needs.getValue("Recorded by hand").personId)
+            assertEquals(2, dao.allPeople().size)
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
+    fun aNoteCanBeMovedOntoAnExistingPersonButNotOntoADuplicateNameOrItself() = runBlocking {
+        val database = Room.inMemoryDatabaseBuilder(context, NetworkDatabase::class.java).build()
+        try {
+            val dao = database.networkDao()
+            val wrongPerson = dao.savePerson(PersonEntity(name = "Synthetic Bastien", createdAt = 1, updatedAt = 1))
+            val rightPerson = dao.savePerson(PersonEntity(name = "Synthetic Alain", createdAt = 1, updatedAt = 1))
+            val noteId = dao.insertInteraction(
+                InteractionEntity(personId = wrongPerson, note = "Synthetic note", occurredAt = 2, createdAt = 2),
+            )
+
+            // Creating a second "Synthetic Alain" would split one person in two.
+            assertThrows(IllegalArgumentException::class.java) {
+                runBlocking { dao.moveInteraction(noteId, MoveDestination.NewPerson("synthetic alain"), now = 10) }
+            }
+            assertThrows(IllegalArgumentException::class.java) {
+                runBlocking { dao.moveInteraction(noteId, MoveDestination.Existing(wrongPerson), now = 10) }
+            }
+            assertEquals(wrongPerson, dao.allInteractions().single().personId)
+
+            val moved = dao.moveInteraction(noteId, MoveDestination.Existing(rightPerson), now = 10)
+
+            assertEquals(rightPerson, moved.personId)
+            assertEquals(0, moved.records)
+            assertEquals(rightPerson, dao.allInteractions().single().personId)
+            assertEquals(2, dao.allPeople().size)
+        } finally {
+            database.close()
+        }
+    }
+
     @Test
     fun confirmedProposalIsAtomicAndLinksDerivedRecordsToAuditInteraction() = runBlocking {
         val database = Room.inMemoryDatabaseBuilder(context, NetworkDatabase::class.java).build()
