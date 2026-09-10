@@ -196,11 +196,6 @@ class NetworkRepository(private val dao: NetworkDao) {
 
     suspend fun allFeedback(): List<AiFeedbackEntity> = dao.allFeedback()
 
-    suspend fun markFeedbackExported(ids: List<Long>, exportedAt: Long) {
-        if (ids.isEmpty()) return
-        dao.markFeedbackExported(ids, exportedAt)
-    }
-
     suspend fun deleteFeedback(id: Long) = dao.deleteFeedback(id)
 
     suspend fun clearFeedback() = dao.clearFeedback()
@@ -214,13 +209,14 @@ class NetworkRepository(private val dao: NetworkDao) {
         facts = dao.allFacts(),
     )
 
-    suspend fun replaceAll(snapshot: NetworkSnapshot) = dao.replaceAll(
+    suspend fun replaceAll(snapshot: NetworkSnapshot, feedback: List<AiFeedbackEntity>) = dao.replaceAll(
         people = snapshot.people,
         interactions = snapshot.interactions,
         needs = snapshot.needs,
         capabilities = snapshot.capabilities,
         affiliations = snapshot.affiliations,
         facts = snapshot.facts,
+        feedback = feedback,
     )
 
     companion object {

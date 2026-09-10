@@ -31,8 +31,6 @@ import com.azizjon.network.data.PersonDraft
 import com.azizjon.network.data.AiFeedbackEntity
 import com.azizjon.network.data.PersonEntity
 import com.azizjon.network.feedback.AiFeedbackLabel
-import com.azizjon.network.feedback.FeedbackRedactor
-import com.azizjon.network.feedback.FeedbackReport
 import com.azizjon.network.feedback.buildFeedback
 import com.azizjon.network.feedback.installedAppVersion
 import kotlinx.coroutines.Job
@@ -43,7 +41,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -57,13 +55,7 @@ data class BackupUiState(
     val busy: Boolean = false,
 )
 
-data class FeedbackUiState(
-    val reports: List<AiFeedbackEntity> = emptyList(),
-    val exporting: Boolean = false,
-) {
-    /** Reports filed since the last export, which is what still needs sending. */
-    val unexported: Int get() = reports.count { it.exportedAt == null }
-}
+data class FeedbackUiState(val reports: List<AiFeedbackEntity> = emptyList())
 
 class NetworkViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as NetworkApplication
@@ -73,7 +65,6 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
     private val gatewaySettings = app.gatewaySettings
     private val gatewayClient = app.gatewayClient
     private val captureDraftStore = app.captureDraftStore
-    private val feedbackExporter = app.feedbackExporter
 
     val snapshot: StateFlow<NetworkSnapshot> = repository.observeSnapshot().stateIn(
         viewModelScope,
@@ -97,12 +88,8 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
     private val _searchConsentRequest = MutableStateFlow<String?>(null)
     val searchConsentRequest: StateFlow<String?> = _searchConsentRequest.asStateFlow()
 
-    private val _feedbackExporting = MutableStateFlow(false)
-
-    val feedbackState: StateFlow<FeedbackUiState> = combine(
-        repository.observeFeedback(),
-        _feedbackExporting,
-    ) { reports, exporting -> FeedbackUiState(reports, exporting) }
+    val feedbackState: StateFlow<FeedbackUiState> = repository.observeFeedback()
+        .map(::FeedbackUiState)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FeedbackUiState())
 
     /** The assistant message the report sheet is open for, if any. */
@@ -392,49 +379,9 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
                     ),
                 )
                 updateMessage(message.id) { it.copy(reportedLabel = label.id) }
-                showMessage("Reported. Export the collected reports from Settings.")
+                showMessage("Reported. It travels with your next encrypted backup.")
             } catch (error: Exception) {
                 showMessage(error.message ?: "Could not save the report")
-            }
-        }
-    }
-
-    /**
-     * Writes every stored report to one file and opens the share sheet.
-     *
-     * [redact] swaps saved people for stable placeholders. It is the default
-     * because a report is about the assistant, not about who anyone is, and
-     * because the file is about to leave the phone.
-     */
-    fun exportFeedback(redact: Boolean) {
-        if (_feedbackExporting.value) return
-        viewModelScope.launch {
-            _feedbackExporting.value = true
-            try {
-                val items = repository.allFeedback()
-                if (items.isEmpty()) {
-                    showMessage("There are no reports to export")
-                    return@launch
-                }
-                val generatedAt = System.currentTimeMillis()
-                val people = if (redact) repository.snapshot().people else emptyList()
-                val file = withContext(Dispatchers.IO) {
-                    val json = FeedbackReport.build(
-                        items = items,
-                        appVersion = installedAppVersion(app),
-                        generatedAt = generatedAt,
-                        redactor = if (redact) FeedbackRedactor(people) else null,
-                    )
-                    feedbackExporter.write(json, FeedbackReport.fileName(generatedAt))
-                }
-                repository.markFeedbackExported(items.map { it.id }, generatedAt)
-                feedbackExporter.share(file)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                showMessage(error.message ?: "Could not export the reports")
-            } finally {
-                _feedbackExporting.value = false
             }
         }
     }
@@ -443,6 +390,9 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             try {
                 repository.deleteFeedback(id)
+                settings.markBackupNeeded()
+                refreshBackupState()
+                scheduleAutoBackup()
             } catch (error: Exception) {
                 showMessage(error.message ?: "Could not delete the report")
             }
@@ -453,7 +403,10 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             try {
                 repository.clearFeedback()
-                withContext(Dispatchers.IO) { feedbackExporter.clearExports() }
+                // Deleting reports changes what the next backup should contain.
+                settings.markBackupNeeded()
+                refreshBackupState()
+                scheduleAutoBackup()
                 showMessage("All assistant reports deleted")
             } catch (error: Exception) {
                 showMessage(error.message ?: "Could not delete the reports")
@@ -514,10 +467,10 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
             try {
                 val restored = backupManager.download(config)
                 settings.markBackupNeeded()
-                repository.replaceAll(restored)
+                repository.replaceAll(restored.snapshot, restored.feedback)
                 settings.markBackedUp()
                 refreshBackupState()
-                showMessage("Restored ${restored.people.size} people from encrypted backup")
+                showMessage("Restored ${restored.snapshot.people.size} people from encrypted backup")
                 onRestored()
             } catch (e: Exception) {
                 val safeMessage = e.message ?: "Restore failed"
@@ -742,7 +695,10 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         try {
             val result = backupManager.backup(config)
             refreshBackupState()
-            if (showSuccess) showMessage("Encrypted backup saved for ${result.people} people")
+            if (showSuccess) {
+                val reports = if (result.feedback == 0) "" else " and ${result.feedback} assistant report(s)"
+                showMessage("Encrypted backup saved for ${result.people} people$reports")
+            }
         } catch (e: Exception) {
             val safeMessage = e.message ?: "GitHub backup failed"
             settings.markFailed(safeMessage)

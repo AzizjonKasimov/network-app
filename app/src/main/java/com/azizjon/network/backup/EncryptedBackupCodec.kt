@@ -1,6 +1,7 @@
 package com.azizjon.network.backup
 
 import com.azizjon.network.data.AffiliationEntity
+import com.azizjon.network.data.AiFeedbackEntity
 import com.azizjon.network.data.CapabilityEntity
 import com.azizjon.network.data.FactEntity
 import com.azizjon.network.data.InteractionEntity
@@ -20,9 +21,28 @@ import javax.crypto.spec.SecretKeySpec
 
 class BackupCodecException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
+/**
+ * Everything one backup carries.
+ *
+ * Reported assistant answers travel beside the network rather than inside the
+ * snapshot, because a [NetworkSnapshot] is what the screens and the AI search
+ * corpus are built from and diagnostic rows have no business there. Same file,
+ * same encryption, separate list.
+ */
+data class BackupPayload(
+    val snapshot: NetworkSnapshot,
+    val feedback: List<AiFeedbackEntity> = emptyList(),
+)
+
 object EncryptedBackupCodec {
     private const val FORMAT = "network-app-encrypted-backup"
     private const val VERSION = 1
+
+    /** Shape of the decrypted payload. Bumped whenever a list is added. */
+    internal const val SCHEMA_VERSION = 5
+
+    /** A sane ceiling so a damaged backup cannot flood the table on restore. */
+    private const val MAX_FEEDBACK_ROWS = 5_000
     private const val ITERATIONS = 210_000
     private const val KEY_BITS = 256
     private const val TAG_BITS = 128
@@ -31,7 +51,7 @@ object EncryptedBackupCodec {
     private val associatedData = "$FORMAT:$VERSION".toByteArray(Charsets.UTF_8)
 
     fun encode(
-        snapshot: NetworkSnapshot,
+        payload: BackupPayload,
         passphrase: String,
         random: SecureRandom = SecureRandom(),
     ): String {
@@ -40,7 +60,7 @@ object EncryptedBackupCodec {
         }
         val salt = ByteArray(SALT_BYTES).also(random::nextBytes)
         val iv = ByteArray(IV_BYTES).also(random::nextBytes)
-        val plaintext = snapshotToJson(snapshot).toByteArray(Charsets.UTF_8)
+        val plaintext = payloadToJson(payload).toByteArray(Charsets.UTF_8)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, deriveKey(passphrase, salt), GCMParameterSpec(TAG_BITS, iv))
         cipher.updateAAD(associatedData)
@@ -56,7 +76,7 @@ object EncryptedBackupCodec {
             .toString(2)
     }
 
-    fun decode(envelope: String, passphrase: String): NetworkSnapshot {
+    fun decode(envelope: String, passphrase: String): BackupPayload {
         try {
             val json = JSONObject(envelope)
             if (json.optString("format") != FORMAT || json.optInt("version") != VERSION) {
@@ -71,7 +91,7 @@ object EncryptedBackupCodec {
             cipher.init(Cipher.DECRYPT_MODE, deriveKey(passphrase, salt, iterations), GCMParameterSpec(TAG_BITS, iv))
             cipher.updateAAD(associatedData)
             val plaintext = cipher.doFinal(ciphertext).toString(Charsets.UTF_8)
-            return snapshotFromJson(plaintext)
+            return payloadFromJson(plaintext)
         } catch (e: BackupCodecException) {
             throw e
         } catch (e: GeneralSecurityException) {
@@ -91,17 +111,18 @@ object EncryptedBackupCodec {
         }
     }
 
-    private fun NetworkSnapshot.toJson(): JSONObject = JSONObject()
-        .put("schemaVersion", 4)
+    private fun BackupPayload.toJson(): JSONObject = JSONObject()
+        .put("schemaVersion", SCHEMA_VERSION)
         .put("exportedAt", System.currentTimeMillis())
-        .put("people", JSONArray().apply { people.forEach { put(it.toJson()) } })
-        .put("interactions", JSONArray().apply { interactions.forEach { put(it.toJson()) } })
-        .put("needs", JSONArray().apply { needs.forEach { put(it.toJson()) } })
-        .put("capabilities", JSONArray().apply { capabilities.forEach { put(it.toJson()) } })
-        .put("affiliations", JSONArray().apply { affiliations.forEach { put(it.toJson()) } })
-        .put("facts", JSONArray().apply { facts.forEach { put(it.toJson()) } })
+        .put("people", JSONArray().apply { snapshot.people.forEach { put(it.toJson()) } })
+        .put("interactions", JSONArray().apply { snapshot.interactions.forEach { put(it.toJson()) } })
+        .put("needs", JSONArray().apply { snapshot.needs.forEach { put(it.toJson()) } })
+        .put("capabilities", JSONArray().apply { snapshot.capabilities.forEach { put(it.toJson()) } })
+        .put("affiliations", JSONArray().apply { snapshot.affiliations.forEach { put(it.toJson()) } })
+        .put("facts", JSONArray().apply { snapshot.facts.forEach { put(it.toJson()) } })
+        .put("feedback", JSONArray().apply { feedback.forEach { put(it.toJson()) } })
 
-    internal fun snapshotToJson(snapshot: NetworkSnapshot): String = snapshot.toJson().toString()
+    internal fun payloadToJson(payload: BackupPayload): String = payload.toJson().toString()
 
     private fun PersonEntity.toJson() = JSONObject()
         .put("id", id).put("name", name)
@@ -136,11 +157,23 @@ object EncryptedBackupCodec {
         .put("lastConfirmedAt", lastConfirmedAt).put("createdAt", createdAt)
         .put("sourceInteractionId", sourceInteractionId ?: JSONObject.NULL)
 
-    internal fun snapshotFromJson(value: String): NetworkSnapshot = snapshotFromJson(JSONObject(value)).also(::validate)
+    private fun AiFeedbackEntity.toJson() = JSONObject()
+        .put("id", id).put("stage", stage).put("label", label).put("note", note)
+        .put("userMessage", userMessage).put("assistantMessage", assistantMessage)
+        .put("assistantDetail", assistantDetail).put("appVersion", appVersion)
+        .put("createdAt", createdAt)
 
-    private fun snapshotFromJson(json: JSONObject): NetworkSnapshot {
+    internal fun payloadFromJson(value: String): BackupPayload = payloadFromJson(JSONObject(value))
+
+    private fun payloadFromJson(json: JSONObject): BackupPayload {
         val schemaVersion = json.optInt("schemaVersion")
-        if (schemaVersion !in 1..4) throw BackupCodecException("Unsupported data schema")
+        if (schemaVersion !in 1..SCHEMA_VERSION) throw BackupCodecException("Unsupported data schema")
+        val snapshot = snapshotFromJson(json, schemaVersion).also(::validate)
+        val feedback = readFeedback(json).also(::validateFeedback)
+        return BackupPayload(snapshot, feedback)
+    }
+
+    private fun snapshotFromJson(json: JSONObject, schemaVersion: Int): NetworkSnapshot {
         return NetworkSnapshot(
             people = json.getJSONArray("people").mapObjects { item ->
                 PersonEntity(
@@ -241,6 +274,35 @@ object EncryptedBackupCodec {
                 )
             }
         }.filterNotNull()
+    }
+
+    /**
+     * Reads reported answers.
+     *
+     * Backups written before feedback existed had nowhere to record one, so an
+     * empty list is the correct reading rather than an error.
+     */
+    private fun readFeedback(json: JSONObject): List<AiFeedbackEntity> =
+        json.optJSONArray("feedback").orEmpty().mapObjects { item ->
+            AiFeedbackEntity(
+                id = item.getLong("id"),
+                stage = item.optString("stage", AiFeedbackEntity.Stage.MESSAGE),
+                label = item.getString("label"),
+                note = item.optString("note"),
+                userMessage = item.optString("userMessage"),
+                assistantMessage = item.optString("assistantMessage"),
+                assistantDetail = item.optString("assistantDetail"),
+                appVersion = item.optString("appVersion"),
+                createdAt = item.getLong("createdAt"),
+            )
+        }
+
+    private fun validateFeedback(feedback: List<AiFeedbackEntity>) {
+        if (feedback.size > MAX_FEEDBACK_ROWS) throw BackupCodecException("Backup contains too much feedback")
+        val ids = feedback.map { it.id }.toSet()
+        if (ids.size != feedback.size || feedback.any { it.id <= 0 || it.label.isBlank() }) {
+            throw BackupCodecException("Backup contains invalid feedback")
+        }
     }
 
     private fun validate(snapshot: NetworkSnapshot) {

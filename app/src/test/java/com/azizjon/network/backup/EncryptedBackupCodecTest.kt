@@ -1,6 +1,7 @@
 package com.azizjon.network.backup
 
 import com.azizjon.network.data.AffiliationEntity
+import com.azizjon.network.data.AiFeedbackEntity
 import com.azizjon.network.data.CapabilityEntity
 import com.azizjon.network.data.FactEntity
 import com.azizjon.network.data.InteractionEntity
@@ -18,7 +19,7 @@ import org.json.JSONObject
 class EncryptedBackupCodecTest {
     @Test
     fun encryptedBackupRoundTripsAllRecordTypes() {
-        val original = sampleSnapshot()
+        val original = BackupPayload(sampleSnapshot())
 
         val encrypted = EncryptedBackupCodec.encode(original, "correct horse battery staple")
         val restored = EncryptedBackupCodec.decode(encrypted, "correct horse battery staple")
@@ -30,7 +31,7 @@ class EncryptedBackupCodecTest {
 
     @Test
     fun wrongPassphraseCannotDecryptBackup() {
-        val encrypted = EncryptedBackupCodec.encode(sampleSnapshot(), "correct horse battery staple")
+        val encrypted = EncryptedBackupCodec.encode(BackupPayload(sampleSnapshot()), "correct horse battery staple")
 
         assertThrows(BackupCodecException::class.java) {
             EncryptedBackupCodec.decode(encrypted, "this is the wrong passphrase")
@@ -52,7 +53,7 @@ class EncryptedBackupCodecTest {
                 .put("id", 4).put("personId", 1).put("text", "Legacy skill")
                 .put("lastConfirmedAt", 7).put("createdAt", 8)))
 
-        val restored = EncryptedBackupCodec.snapshotFromJson(v1.toString())
+        val restored = EncryptedBackupCodec.payloadFromJson(v1.toString()).snapshot
 
         assertEquals(InteractionEntity.ORIGIN_MANUAL, restored.interactions.single().origin)
         assertEquals(null, restored.needs.single().sourceInteractionId)
@@ -74,7 +75,7 @@ class EncryptedBackupCodecTest {
             .put("needs", JSONArray())
             .put("capabilities", JSONArray())
 
-        val restored = EncryptedBackupCodec.snapshotFromJson(v2.toString())
+        val restored = EncryptedBackupCodec.payloadFromJson(v2.toString()).snapshot
 
         val affiliation = restored.affiliations.single()
         assertEquals(1L, affiliation.personId)
@@ -87,7 +88,7 @@ class EncryptedBackupCodecTest {
     fun severalConcurrentPositionsSurviveABackupRoundTrip() {
         val snapshot = sampleSnapshot()
 
-        val restored = EncryptedBackupCodec.snapshotFromJson(EncryptedBackupCodec.snapshotToJson(snapshot))
+        val restored = EncryptedBackupCodec.payloadFromJson(EncryptedBackupCodec.payloadToJson(BackupPayload(snapshot))).snapshot
 
         assertEquals(3, restored.affiliations.size)
         assertEquals(
@@ -112,11 +113,61 @@ class EncryptedBackupCodecTest {
                 .put("id", 5).put("personId", 1).put("organization", "Legacy Corp").put("role", "Engineer")
                 .put("current", true).put("lastConfirmedAt", 3).put("createdAt", 4)))
 
-        val restored = EncryptedBackupCodec.snapshotFromJson(v3.toString())
+        val restored = EncryptedBackupCodec.payloadFromJson(v3.toString()).snapshot
 
         assertTrue(restored.facts.isEmpty())
         // A position stored before the work/education split is work.
         assertFalse(restored.affiliations.single().isEducation)
+    }
+
+    /**
+     * The whole point of moving reports into the backup: they have to survive
+     * the trip, and they must not be readable in the stored envelope.
+     */
+    @Test
+    fun reportedAnswersTravelInsideTheEncryptedBackup() {
+        val payload = BackupPayload(
+            snapshot = sampleSnapshot(),
+            feedback = listOf(
+                AiFeedbackEntity(
+                    id = 1,
+                    stage = AiFeedbackEntity.Stage.PROPOSAL,
+                    label = "wrong_target",
+                    note = "That belonged to somebody else",
+                    userMessage = "Private conversation about Sample Person",
+                    assistantMessage = "I prepared changes",
+                    assistantDetail = "Proposed changes for: Sample Person",
+                    appVersion = "0.11.0 (12)",
+                    createdAt = 20,
+                ),
+            ),
+        )
+
+        val encrypted = EncryptedBackupCodec.encode(payload, "correct horse battery staple")
+        val restored = EncryptedBackupCodec.decode(encrypted, "correct horse battery staple")
+
+        assertEquals(payload, restored)
+        assertEquals("wrong_target", restored.feedback.single().label)
+        assertTrue("wrong_target" !in encrypted)
+        assertTrue("belonged to somebody else" !in encrypted)
+    }
+
+    @Test
+    fun backupsWrittenBeforeReportsRestoreWithNone() {
+        val v4 = JSONObject()
+            .put("schemaVersion", 4)
+            .put("people", JSONArray().put(JSONObject()
+                .put("id", 1).put("name", "Legacy Person").put("createdAt", 1).put("updatedAt", 2)))
+            .put("interactions", JSONArray())
+            .put("needs", JSONArray())
+            .put("capabilities", JSONArray())
+            .put("affiliations", JSONArray())
+            .put("facts", JSONArray())
+
+        val restored = EncryptedBackupCodec.payloadFromJson(v4.toString())
+
+        assertTrue(restored.feedback.isEmpty())
+        assertEquals("Legacy Person", restored.snapshot.people.single().name)
     }
 
     private fun sampleSnapshot(): NetworkSnapshot {

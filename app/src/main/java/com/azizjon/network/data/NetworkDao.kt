@@ -359,9 +359,6 @@ abstract class NetworkDao {
     @Query("DELETE FROM ai_feedback")
     abstract suspend fun clearFeedback()
 
-    @Query("UPDATE ai_feedback SET exportedAt = :exportedAt WHERE id IN (:ids)")
-    abstract suspend fun markFeedbackExported(ids: List<Long>, exportedAt: Long)
-
     @Query("DELETE FROM interactions")
     protected abstract suspend fun clearInteractions()
 
@@ -398,6 +395,9 @@ abstract class NetworkDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     protected abstract suspend fun restoreFacts(facts: List<FactEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    protected abstract suspend fun restoreFeedback(feedback: List<AiFeedbackEntity>)
+
     @Transaction
     open suspend fun replaceAll(
         people: List<PersonEntity>,
@@ -406,7 +406,9 @@ abstract class NetworkDao {
         capabilities: List<CapabilityEntity>,
         affiliations: List<AffiliationEntity>,
         facts: List<FactEntity>,
+        feedback: List<AiFeedbackEntity>,
     ) {
+        clearFeedback()
         clearInteractions()
         clearNeeds()
         clearCapabilities()
@@ -419,6 +421,7 @@ abstract class NetworkDao {
         restoreCapabilities(capabilities)
         restoreAffiliations(affiliations)
         restoreFacts(facts)
+        restoreFeedback(feedback)
     }
 
     private fun validateProposal(proposal: AiWriteProposal, now: Long) {

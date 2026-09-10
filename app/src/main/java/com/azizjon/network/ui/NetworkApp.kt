@@ -142,7 +142,6 @@ fun NetworkApp(viewModel: NetworkViewModel) {
                         onSaveBackupConfig = viewModel::saveBackupConfig,
                         onBackupNow = viewModel::backupNow,
                         onRestore = viewModel::restoreFromGitHub,
-                        onExportFeedback = viewModel::exportFeedback,
                         onDeleteFeedback = viewModel::deleteFeedback,
                         onClearFeedback = viewModel::clearAllFeedback,
                     )

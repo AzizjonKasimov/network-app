@@ -209,13 +209,14 @@ data class FactEntity(
  * itself rather than point at it. That makes each row self-contained: it can be
  * read, exported, and acted on long after the conversation is gone.
  *
- * This is diagnostic data about the assistant, not a network record. It has no
- * foreign keys, is excluded from the encrypted GitHub backup, and survives a
- * restore that replaces every person.
+ * This is diagnostic data about the assistant rather than a network record, so
+ * it carries no foreign keys and survives the records it describes being
+ * corrected or deleted. It travels in the encrypted backup with everything
+ * else, which is how a report reaches the machine where the fault gets fixed.
  */
 @Entity(
     tableName = "ai_feedback",
-    indices = [Index("createdAt"), Index("exportedAt")],
+    indices = [Index("createdAt")],
 )
 data class AiFeedbackEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -234,8 +235,6 @@ data class AiFeedbackEntity(
     /** App version at the time, so a fixed fault is not re-investigated. */
     val appVersion: String,
     val createdAt: Long,
-    /** When this row was last written to an export report; null while new. */
-    val exportedAt: Long? = null,
 ) {
     object Stage {
         const val PROPOSAL = "proposal"

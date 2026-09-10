@@ -1,7 +1,6 @@
 package com.azizjon.network.backup
 
 import com.azizjon.network.data.NetworkRepository
-import com.azizjon.network.data.NetworkSnapshot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -17,6 +16,7 @@ data class GitHubBackupResult(
     val interactions: Int,
     val needs: Int,
     val capabilities: Int,
+    val feedback: Int,
 )
 
 class GitHubEncryptedBackupManager(
@@ -26,20 +26,21 @@ class GitHubEncryptedBackupManager(
     suspend fun backup(config: GitHubBackupConfig): GitHubBackupResult = withContext(Dispatchers.IO) {
         requireConfigured(config)
         requirePrivateRepository(config)
-        val snapshot = repository.snapshot()
-        val encrypted = EncryptedBackupCodec.encode(snapshot, config.passphrase)
+        val payload = BackupPayload(repository.snapshot(), repository.allFeedback())
+        val encrypted = EncryptedBackupCodec.encode(payload, config.passphrase)
         val existing = getContent(config)
         putContent(config, encrypted, existing?.sha)
         settings.markBackedUp()
         GitHubBackupResult(
-            people = snapshot.people.size,
-            interactions = snapshot.interactions.size,
-            needs = snapshot.needs.size,
-            capabilities = snapshot.capabilities.size,
+            people = payload.snapshot.people.size,
+            interactions = payload.snapshot.interactions.size,
+            needs = payload.snapshot.needs.size,
+            capabilities = payload.snapshot.capabilities.size,
+            feedback = payload.feedback.size,
         )
     }
 
-    suspend fun download(config: GitHubBackupConfig): NetworkSnapshot = withContext(Dispatchers.IO) {
+    suspend fun download(config: GitHubBackupConfig): BackupPayload = withContext(Dispatchers.IO) {
         requireConfigured(config)
         requirePrivateRepository(config)
         val content = getContent(config)?.text ?: throw GitHubBackupException("GitHub backup file was not found")

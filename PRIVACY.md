@@ -54,9 +54,11 @@ The assistant must return existing person and evidence IDs. The app rejects unkn
 
 Reporting a wrong answer stores a copy of your message, the assistant's answer, and the proposal or search results behind it in a local database table. Nothing is transmitted when a report is saved. Contact values are never copied into a report: a proposal that changed a contact field is recorded as having done so, without the value.
 
-Reports leave the phone only when you export them from **Settings → Assistant feedback**, and only to the destination you pick in the system share sheet. Redaction is on by default and replaces saved people with stable placeholders and removes emails, links, and phone-shaped numbers. It cannot detect someone who is not saved in the app yet, so quoted text may still name a stranger; the export dialog says so before the file is written. Exporting without redaction produces a file containing real names and conversation text.
+Reports are included in the encrypted GitHub backup, alongside people and their records and under the same AES-256-GCM encryption and passphrase. They leave the phone only when a backup runs, and only to the private repository you configured; the app still refuses to back up to a public repository. Nothing about a report is sent to the AI gateway.
 
-Exported files are written to the app's private cache and each export deletes the ones before it. **Delete all** removes every stored report and every cached export. Reports are excluded from the encrypted GitHub backup, so they are never uploaded.
+Reading a report on another machine means decrypting that backup, which requires the backup passphrase and therefore also exposes the rest of its contents to whoever holds it. `scripts/read-feedback.ps1` writes only the reports to disk and keeps the rest in memory, but the passphrase itself remains the thing to protect.
+
+Deleting a report, or all of them, removes it from the database and marks a backup as needed so the next backup no longer carries it. People and records are unaffected.
 
 ## Credentials and provider processing
 

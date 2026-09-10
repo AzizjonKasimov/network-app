@@ -56,7 +56,6 @@ fun SettingsScreen(
     onSaveBackupConfig: (GitHubBackupConfig) -> Unit,
     onBackupNow: () -> Unit,
     onRestore: (() -> Unit) -> Unit,
-    onExportFeedback: (Boolean) -> Unit,
     onDeleteFeedback: (Long) -> Unit,
     onClearFeedback: () -> Unit,
 ) {
@@ -70,9 +69,7 @@ fun SettingsScreen(
     var autoBackup by remember(saved) { mutableStateOf(saved.autoBackup) }
     var accessToken by remember { mutableStateOf("") }
     var confirmRestore by rememberSaveable { mutableStateOf(false) }
-    var confirmExport by rememberSaveable { mutableStateOf(false) }
     var confirmClearFeedback by rememberSaveable { mutableStateOf(false) }
-    var redactExport by rememberSaveable { mutableStateOf(true) }
 
     Column(Modifier.fillMaxSize()) {
         TopAppBar(title = { Text("Settings") })
@@ -189,14 +186,11 @@ fun SettingsScreen(
             Spacer(Modifier.height(8.dp))
             Text("Assistant feedback", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Text(
-                "Report a wrong answer from the Assistant tab and it is stored here with a copy of the message and the response. Export the collection when you want the faults investigated and fixed.",
+                "Report a wrong answer from the Assistant tab and it is stored here with a copy of the message and the response. Reports travel inside the encrypted backup, so backing up is all it takes to hand them over. Delete one once its fault has been fixed.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             FeedbackCard(
                 state = feedbackState,
-                redact = redactExport,
-                onRedactChange = { redactExport = it },
-                onExport = { confirmExport = true },
                 onClear = { confirmClearFeedback = true },
                 onDelete = onDeleteFeedback,
             )
@@ -217,34 +211,11 @@ fun SettingsScreen(
         }
     }
 
-    if (confirmExport) {
-        AlertDialog(
-            onDismissRequest = { confirmExport = false },
-            title = { Text("Export ${feedbackState.reports.size} report(s)?") },
-            text = {
-                Text(
-                    if (redactExport) {
-                        "The file contains your messages, the assistant's answers, and the proposed record changes behind them. Saved people are replaced by stable placeholders such as Person 1, and emails, links, and phone numbers are removed. Someone not yet saved in the app cannot be detected and may still be named in quoted text. You choose where the file goes next."
-                    } else {
-                        "The file contains your messages, the assistant's answers, and the proposed record changes behind them, with real names and conversation text left intact. Keep it out of version control, issue trackers, and anywhere it could become public. You choose where the file goes next."
-                    },
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmExport = false
-                    onExportFeedback(redactExport)
-                }) { Text("Export and share") }
-            },
-            dismissButton = { TextButton(onClick = { confirmExport = false }) { Text("Cancel") } },
-        )
-    }
-
     if (confirmClearFeedback) {
         AlertDialog(
             onDismissRequest = { confirmClearFeedback = false },
             title = { Text("Delete all reports?") },
-            text = { Text("Every stored report and every exported copy still in this app's cache is deleted. Your people and records are not affected. This cannot be undone.") },
+            text = { Text("Every stored report is deleted. Your people and records are not affected. This cannot be undone, and the next backup will no longer carry them.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmClearFeedback = false
@@ -272,18 +243,15 @@ fun SettingsScreen(
 }
 
 /**
- * What has been reported, and the two things worth doing with it.
+ * What has been reported, and the one thing left to do with it.
  *
  * The list is deliberately shown in full rather than summarised: a report is
  * only useful if the owner can still recognise it, and recognising it is also
- * how a mistaken report gets deleted before it is exported.
+ * how a mistaken one gets deleted before it reaches a backup.
  */
 @Composable
 private fun FeedbackCard(
     state: FeedbackUiState,
-    redact: Boolean,
-    onRedactChange: (Boolean) -> Unit,
-    onExport: () -> Unit,
     onClear: () -> Unit,
     onDelete: (Long) -> Unit,
 ) {
@@ -293,29 +261,11 @@ private fun FeedbackCard(
                 if (state.reports.isEmpty()) "No reports yet" else "${state.reports.size} report(s) collected",
                 fontWeight = FontWeight.SemiBold,
             )
-            if (state.unexported > 0) {
-                Text(
-                    "${state.unexported} not exported yet",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(redact, onRedactChange)
-                Text("Replace people with placeholders", style = MaterialTheme.typography.bodyMedium)
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    enabled = state.reports.isNotEmpty() && !state.exporting,
-                    onClick = onExport,
-                    modifier = Modifier.weight(1f),
-                ) { Text(if (state.exporting) "Working…" else "Export reports") }
-                Button(
-                    enabled = state.reports.isNotEmpty() && !state.exporting,
-                    onClick = onClear,
-                    modifier = Modifier.weight(1f),
-                ) { Text("Delete all") }
-            }
+            Button(
+                enabled = state.reports.isNotEmpty(),
+                onClick = onClear,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Delete all") }
             state.reports.forEach { report ->
                 HorizontalDivider()
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {

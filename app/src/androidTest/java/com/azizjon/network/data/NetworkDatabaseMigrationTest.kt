@@ -36,6 +36,7 @@ class NetworkDatabaseMigrationTest {
                 NetworkDatabase.MIGRATION_2_3,
                 NetworkDatabase.MIGRATION_3_4,
                 NetworkDatabase.MIGRATION_4_5,
+                NetworkDatabase.MIGRATION_5_6,
             )
             .build()
         try {
@@ -210,6 +211,53 @@ class NetworkDatabaseMigrationTest {
             assertEquals(interactionsBefore, dao.allInteractions())
         } finally {
             database.close()
+        }
+    }
+
+    /**
+     * Reports collected on a phone running schema 5 must survive the column
+     * being dropped, or upgrading silently throws away the very thing the
+     * backup is now meant to carry.
+     */
+    @Test
+    fun droppingTheExportedMarkerKeepsExistingReports() {
+        val helper = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(TEST_DATABASE)
+            .callback(object : SupportSQLiteOpenHelper.Callback(5) {
+                override fun onCreate(database: SupportSQLiteDatabase) {
+                    database.execSQL(
+                        "CREATE TABLE ai_feedback (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, stage TEXT NOT NULL, " +
+                            "label TEXT NOT NULL, note TEXT NOT NULL, userMessage TEXT NOT NULL, assistantMessage TEXT NOT NULL, " +
+                            "assistantDetail TEXT NOT NULL, appVersion TEXT NOT NULL, createdAt INTEGER NOT NULL, exportedAt INTEGER)",
+                    )
+                    database.execSQL("CREATE INDEX index_ai_feedback_createdAt ON ai_feedback(createdAt)")
+                    database.execSQL("CREATE INDEX index_ai_feedback_exportedAt ON ai_feedback(exportedAt)")
+                    database.execSQL(
+                        "INSERT INTO ai_feedback (stage, label, note, userMessage, assistantMessage, assistantDetail, appVersion, createdAt, exportedAt) " +
+                            "VALUES ('proposal', 'wrong_target', 'synthetic note', 'synthetic message', 'synthetic answer', 'synthetic detail', '0.10.0 (11)', 42, 7)",
+                    )
+                }
+
+                override fun onUpgrade(database: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+            })
+            .build()
+        val opener = FrameworkSQLiteOpenHelperFactory().create(helper)
+        try {
+            NetworkDatabase.MIGRATION_5_6.migrate(opener.writableDatabase)
+            opener.writableDatabase.query("SELECT label, note, appVersion, createdAt FROM ai_feedback").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("wrong_target", cursor.getString(0))
+                assertEquals("synthetic note", cursor.getString(1))
+                assertEquals("0.10.0 (11)", cursor.getString(2))
+                assertEquals(42L, cursor.getLong(3))
+                assertEquals(1, cursor.count)
+            }
+            // The column is gone, not merely ignored.
+            assertThrows(android.database.sqlite.SQLiteException::class.java) {
+                opener.writableDatabase.query("SELECT exportedAt FROM ai_feedback").use { it.moveToFirst() }
+            }
+        } finally {
+            opener.close()
         }
     }
 

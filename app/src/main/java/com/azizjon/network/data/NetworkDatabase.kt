@@ -17,7 +17,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FactEntity::class,
         AiFeedbackEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 abstract class NetworkDatabase : RoomDatabase() {
@@ -31,7 +31,43 @@ abstract class NetworkDatabase : RoomDatabase() {
                 context.applicationContext,
                 NetworkDatabase::class.java,
                 "network.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .build().also { instance = it }
+        }
+
+        /**
+         * Drops the exported marker from feedback.
+         *
+         * It only ever tracked the share-sheet export, which no longer exists:
+         * reports now reach the machine that fixes them inside the encrypted
+         * backup, and that has its own backup-needed marker. Keeping a column
+         * nothing writes would leave the table lying about what it knows.
+         */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE ai_feedback_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        stage TEXT NOT NULL,
+                        label TEXT NOT NULL,
+                        note TEXT NOT NULL,
+                        userMessage TEXT NOT NULL,
+                        assistantMessage TEXT NOT NULL,
+                        assistantDetail TEXT NOT NULL,
+                        appVersion TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    "INSERT INTO ai_feedback_new (id, stage, label, note, userMessage, assistantMessage, assistantDetail, appVersion, createdAt) " +
+                        "SELECT id, stage, label, note, userMessage, assistantMessage, assistantDetail, appVersion, createdAt FROM ai_feedback",
+                )
+                database.execSQL("DROP TABLE ai_feedback")
+                database.execSQL("ALTER TABLE ai_feedback_new RENAME TO ai_feedback")
+                database.execSQL("CREATE INDEX index_ai_feedback_createdAt ON ai_feedback(createdAt)")
+            }
         }
 
         /**

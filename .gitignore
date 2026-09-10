@@ -27,5 +27,5 @@ captures/
 .DS_Store
 Thumbs.db
 
-# Exported assistant feedback quotes real conversations
-assistant-feedback-*.json
+# Decrypted assistant feedback pulled from the private backup
+assistant-feedback.json
