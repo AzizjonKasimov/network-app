@@ -207,7 +207,7 @@ data class FactEntity(
  * The chat thread is memory-only and a proposal card disappears the moment it
  * is applied or a new chat starts, so a report has to copy the response into
  * itself rather than point at it. That makes each row self-contained: it can be
- * read, exported, and acted on long after the conversation is gone.
+ * read and acted on long after the conversation is gone.
  *
  * This is diagnostic data about the assistant rather than a network record, so
  * it carries no foreign keys and survives the records it describes being

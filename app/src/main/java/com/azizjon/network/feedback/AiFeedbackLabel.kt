@@ -7,8 +7,8 @@ package com.azizjon.network.feedback
  * can be counted and grouped later. The free-text note stays available for
  * everything the list cannot express, and [OTHER] is the honest escape hatch.
  *
- * The [id] is what lands in the database and the export file, so it must stay
- * stable across releases even if the wording on screen changes.
+ * The [id] is what lands in the database and rides out in the backup, so it
+ * must stay stable across releases even if the wording on screen changes.
  */
 enum class AiFeedbackLabel(val id: String, val title: String, val description: String) {
     WRONG_TARGET(

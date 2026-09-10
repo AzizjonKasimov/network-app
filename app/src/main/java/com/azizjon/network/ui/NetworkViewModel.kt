@@ -361,8 +361,8 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
     /**
      * Stores the report, copying the response into it as it goes.
      *
-     * Nothing is sent anywhere. The report sits in the local database until the
-     * user exports it from Settings and chooses where it goes.
+     * Nothing is sent as the report is saved. It sits in the local database and
+     * leaves only inside the next encrypted backup, which the user starts.
      */
     fun submitFeedback(label: AiFeedbackLabel, note: String) {
         val message = _feedbackTarget.value ?: return

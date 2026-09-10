@@ -31,8 +31,9 @@ import com.azizjon.network.feedback.AiFeedbackLabel
  *
  * A label is required and the note is not, because the label is the part that
  * can be counted across reports while the note is the part that explains the
- * one in front of you. The dialog says plainly that nothing is sent anywhere:
- * a report is a local row until the user exports it themselves.
+ * one in front of you. The dialog says plainly where the report goes: nothing
+ * is sent when it is saved, and it leaves only inside the next encrypted
+ * backup, which the user starts.
  */
 @Composable
 fun FeedbackDialog(
@@ -72,7 +73,7 @@ fun FeedbackDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    "The report is stored on this phone with a copy of the message and the response. Nothing leaves the phone until you export it from Settings.",
+                    "The report is stored on this phone with a copy of the message and the response. It leaves the phone only inside your next encrypted backup. Contact values are never copied into a report.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
