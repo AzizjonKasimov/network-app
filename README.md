@@ -29,7 +29,7 @@ The first native Android version includes:
 - launch-time and manual signed APK update checks;
 - a PowerShell release workflow matching the existing expense tracker pattern.
 
-The current signed release is [`v0.10.0`](https://github.com/AzizjonKasimov/network-app-releases/releases/tag/v0.10.0) (version code `11`). Its GitHub asset and updater manifest have been verified against the package version, byte size, SHA-256 digest, and pinned signing certificate.
+The current signed release is [`v0.11.0`](https://github.com/AzizjonKasimov/network-app-releases/releases/tag/v0.11.0) (version code `12`). Its GitHub asset and updater manifest have been verified against the package version, byte size, SHA-256 digest, and pinned signing certificate.
 
 Manual capture and local matching remain fully available without the gateway or network access. The assistant never writes directly: create/update requests become editable proposals, and Room is changed only after explicit confirmation.
 
