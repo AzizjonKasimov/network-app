@@ -122,6 +122,9 @@ fun NetworkApp(viewModel: NetworkViewModel) {
                         onMoveInteraction = { interactionId, destination ->
                             viewModel.moveInteraction(interactionId, destination)
                         },
+                        onSelectChatMoveNote = viewModel::selectChatMoveNote,
+                        onConfirmChatMove = viewModel::confirmChatMove,
+                        onCancelChatMove = viewModel::cancelChatMove,
                         onDismissFeedback = viewModel::dismissFeedback,
                         onSubmitFeedback = viewModel::submitFeedback,
                         onNewChat = viewModel::startNewChat,
@@ -141,6 +144,7 @@ fun NetworkApp(viewModel: NetworkViewModel) {
                         onRevokeAiSearchConsent = viewModel::revokeAiSearchConsent,
                         onSaveBackupConfig = viewModel::saveBackupConfig,
                         onBackupNow = viewModel::backupNow,
+                        onVerifyBackup = viewModel::verifyBackup,
                         onRestore = viewModel::restoreFromGitHub,
                         onDeleteFeedback = viewModel::deleteFeedback,
                         onClearFeedback = viewModel::clearAllFeedback,

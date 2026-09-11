@@ -18,6 +18,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -55,6 +56,7 @@ fun SettingsScreen(
     onRevokeAiSearchConsent: () -> Unit,
     onSaveBackupConfig: (GitHubBackupConfig) -> Unit,
     onBackupNow: () -> Unit,
+    onVerifyBackup: () -> Unit,
     onRestore: (() -> Unit) -> Unit,
     onDeleteFeedback: (Long) -> Unit,
     onClearFeedback: () -> Unit,
@@ -182,6 +184,16 @@ fun SettingsScreen(
                     Text("Restore")
                 }
             }
+            OutlinedButton(
+                enabled = !backupState.busy,
+                onClick = onVerifyBackup,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Check the stored backup opens") }
+            Text(
+                "Tries the saved passphrase against the backup in the repository and restores nothing. A passphrase that has drifted out of sync is invisible until a restore, which is the one moment there is no second copy to fall back on. Worth doing after changing it.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
             Spacer(Modifier.height(8.dp))
             Text("Assistant feedback", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)

@@ -11,6 +11,13 @@ import java.util.Base64
 
 class GitHubBackupException(message: String) : Exception(message)
 
+/** What the stored backup turned out to hold, once the passphrase opened it. */
+data class BackupCheck(
+    val people: Int,
+    val interactions: Int,
+    val feedback: Int,
+)
+
 data class GitHubBackupResult(
     val people: Int,
     val interactions: Int,
@@ -49,6 +56,24 @@ class GitHubEncryptedBackupManager(
         } catch (e: BackupCodecException) {
             throw GitHubBackupException(e.message ?: "Backup could not be decrypted")
         }
+    }
+
+    /**
+     * Proves the saved passphrase still opens the stored backup.
+     *
+     * A backup that cannot be decrypted is indistinguishable from a good one
+     * until the day it is needed, which is the one day there is no second copy
+     * to fall back on. This reads the real stored file with the real saved
+     * passphrase and throws away what it finds: nothing is written to the
+     * database, to the repository, or to disk.
+     */
+    suspend fun verify(config: GitHubBackupConfig): BackupCheck {
+        val payload = download(config)
+        return BackupCheck(
+            people = payload.snapshot.people.size,
+            interactions = payload.snapshot.interactions.size,
+            feedback = payload.feedback.size,
+        )
     }
 
     private fun requireConfigured(config: GitHubBackupConfig) {

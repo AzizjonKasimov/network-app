@@ -38,6 +38,23 @@ class ChatRouterTest {
     }
 
     @Test
+    fun reFilingRequestsSkipTheOfflineShortcut() {
+        // "Move Alex's note to Wren" names a person who may not be saved yet, so
+        // only one name is recognisable and the shortcut would file it as a fresh
+        // note about Alex instead of moving hers.
+        assertTrue(ChatRouter.looksLikeMove("Move Alex's note to Wren"))
+        assertTrue(ChatRouter.looksLikeMove("that belongs to Robin, not Alex"))
+        assertTrue(ChatRouter.looksLikeMove("Wrong person - refile it"))
+        assertTrue(ChatRouter.looksLikeMove("that note should be under Robin"))
+
+        // An ordinary capture must not be dragged into the move path by a word
+        // that merely looks like one.
+        assertFalse(ChatRouter.looksLikeMove("Met Alex at the logistics meetup."))
+        assertFalse(ChatRouter.looksLikeMove("Alex is removing herself from the board."))
+        assertFalse(ChatRouter.looksLikeMove(""))
+    }
+
+    @Test
     fun searchScopedHistoryKeepsEverything() {
         // Search sends every active person in the same request, so earlier turns
         // disclose nothing the corpus does not already carry.

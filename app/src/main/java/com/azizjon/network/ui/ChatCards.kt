@@ -16,6 +16,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -27,8 +28,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.azizjon.network.ai.AiPersonSearchResult
+import com.azizjon.network.ai.ChatAttachment
+import com.azizjon.network.ai.MoveCandidate
 import com.azizjon.network.ai.TargetChoiceState
 import com.azizjon.network.data.AiAffiliationAdd
 import com.azizjon.network.data.AiAffiliationEdit
@@ -299,6 +303,101 @@ fun TargetChoiceCard(
             }
         }
     }
+}
+
+/**
+ * A re-filing the assistant worked out, waiting on the user to confirm it.
+ *
+ * Every candidate note is shown in full rather than summarised. Which note the
+ * user meant is the one part of a move the app is guessing at, and a move
+ * rewrites who a stored record belongs to, so the guess has to be visible and
+ * changeable before it is acted on rather than described afterwards.
+ */
+@Composable
+fun MoveCard(
+    move: ChatAttachment.Move,
+    busy: Boolean,
+    onSelectNote: (Long) -> Unit,
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit,
+    onOpenPerson: (Long) -> Unit,
+) {
+    val plan = move.plan
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "${plan.from.name} → ${plan.destinationName}" + if (plan.createsPerson) " (new person)" else "",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            if (move.done) {
+                Text("Moved.", style = MaterialTheme.typography.bodyMedium)
+                move.movedToPersonId?.let { personId ->
+                    TextButton(onClick = { onOpenPerson(personId) }) { Text("Open ${plan.destinationName}") }
+                }
+            } else {
+                plan.candidates.forEach { candidate ->
+                    MoveCandidateRow(
+                        candidate = candidate,
+                        chosen = candidate.interaction.id == plan.selectedInteractionId,
+                        enabled = !busy,
+                        onChoose = { onSelectNote(candidate.interaction.id) },
+                    )
+                }
+                Text(
+                    "The note and every position, need, capability, and background record it created move together.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    "Profile details it changed on ${plan.from.name} stay there, because a changed field keeps no record of where it came from. Check them by hand afterwards.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onCancel, enabled = !busy, modifier = Modifier.weight(1f)) {
+                        Text("Cancel")
+                    }
+                    Button(onClick = onConfirm, enabled = !busy, modifier = Modifier.weight(1f)) {
+                        Text("Move")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MoveCandidateRow(
+    candidate: MoveCandidate,
+    chosen: Boolean,
+    enabled: Boolean,
+    onChoose: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onChoose),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        RadioButton(selected = chosen, onClick = onChoose, enabled = enabled)
+        Column(Modifier.padding(top = 12.dp)) {
+            Text(
+                formatAiDate(candidate.interaction.occurredAt) + linkedRecordsLabel(candidate.linkedRecords),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                candidate.interaction.note,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+private fun linkedRecordsLabel(count: Int): String = when (count) {
+    0 -> ""
+    1 -> " · 1 linked record"
+    else -> " · $count linked records"
 }
 
 /** Ranked matches with the stored evidence that produced each one. */

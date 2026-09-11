@@ -74,6 +74,9 @@ fun ChatScreen(
     onDismissSearchConsent: () -> Unit,
     onReportMessage: (Long) -> Unit,
     onMoveInteraction: (Long, MoveDestination) -> Unit,
+    onSelectChatMoveNote: (Long, Long) -> Unit,
+    onConfirmChatMove: (Long) -> Unit,
+    onCancelChatMove: (Long) -> Unit,
     onDismissFeedback: () -> Unit,
     onSubmitFeedback: (AiFeedbackLabel, String) -> Unit,
     onNewChat: () -> Unit,
@@ -120,6 +123,9 @@ fun ChatScreen(
                             onDiscardProposal = onDiscardProposal,
                             onApplyProposal = onApplyProposal,
                             onReport = onReportMessage,
+                            onSelectChatMoveNote = onSelectChatMoveNote,
+                            onConfirmChatMove = onConfirmChatMove,
+                            onCancelChatMove = onCancelChatMove,
                             onMoveNote = { saved ->
                                 saved.savedInteractionId?.let { id ->
                                     moveRequest = MoveRequest(
@@ -190,6 +196,9 @@ private fun ChatMessageRow(
     onApplyProposal: () -> Unit,
     onReport: (Long) -> Unit,
     onMoveNote: (ChatAttachment.Proposal) -> Unit,
+    onSelectChatMoveNote: (Long, Long) -> Unit,
+    onConfirmChatMove: (Long) -> Unit,
+    onCancelChatMove: (Long) -> Unit,
 ) {
     val fromUser = message.role == ChatRole.USER
     Column(
@@ -230,6 +239,14 @@ private fun ChatMessageRow(
                 onUpdate = onUpdateProposal,
                 onDiscard = onDiscardProposal,
                 onApply = onApplyProposal,
+                onOpenPerson = onOpenPerson,
+            )
+            is ChatAttachment.Move -> MoveCard(
+                move = attachment,
+                busy = busy,
+                onSelectNote = { interactionId -> onSelectChatMoveNote(message.id, interactionId) },
+                onConfirm = { onConfirmChatMove(message.id) },
+                onCancel = { onCancelChatMove(message.id) },
                 onOpenPerson = onOpenPerson,
             )
             is ChatAttachment.TargetChoice -> TargetChoiceCard(attachment.value, snapshot, busy, onChooseTarget)

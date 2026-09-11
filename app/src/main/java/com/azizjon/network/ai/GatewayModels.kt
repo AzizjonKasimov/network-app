@@ -6,6 +6,15 @@ import com.azizjon.network.data.PersonEntity
 data class TargetResolution(
     val targetName: String,
     val intent: ChatIntent,
+    /**
+     * For [ChatIntent.MOVE]: who holds the note now, and who it should go to.
+     *
+     * Names only. Which note they mean, and what it created, is worked out on
+     * the phone by [MovePlanner], so a move discloses nothing beyond the message
+     * the user already sent.
+     */
+    val moveFrom: String = "",
+    val moveTo: String = "",
 )
 
 /** A proposal plus the sentence the assistant says about it in the thread. */

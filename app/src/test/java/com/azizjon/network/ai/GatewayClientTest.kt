@@ -261,6 +261,38 @@ class GatewayClientTest {
     }
 
     @Test
+    fun moveIntentCarriesBothNamesAndNoTarget() {
+        // A move is the one intent that names two people. It must not be pushed
+        // through the single-target checks, which would reject the empty name.
+        val payload = JSONObject()
+            .put("intent", "move")
+            .put("targetName", "")
+            .put("moveFrom", "  Synthetic Alex ")
+            .put("moveTo", "Synthetic Robin")
+            .put("warning", JSONObject.NULL)
+
+        val resolution = GatewayClient.parseTargetResponse(wrap(payload))
+
+        assertEquals(ChatIntent.MOVE, resolution.intent)
+        assertEquals("Synthetic Alex", resolution.moveFrom)
+        assertEquals("Synthetic Robin", resolution.moveTo)
+        assertEquals("", resolution.targetName)
+    }
+
+    @Test
+    fun everyOtherIntentLeavesTheMoveNamesEmpty() {
+        val payload = JSONObject()
+            .put("intent", "capture")
+            .put("targetName", "Synthetic Alex")
+            .put("warning", JSONObject.NULL)
+
+        val resolution = GatewayClient.parseTargetResponse(wrap(payload))
+
+        assertEquals("", resolution.moveFrom)
+        assertEquals("", resolution.moveTo)
+    }
+
+    @Test
     fun responsesWithoutAnOutputObjectAreRejected() {
         // The gateway always answers with {"output": {...}}; anything else means
         // the reply did not survive schema validation and must not be trusted.

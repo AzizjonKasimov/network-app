@@ -240,6 +240,7 @@ data class AiFeedbackEntity(
         const val PROPOSAL = "proposal"
         const val SEARCH = "search"
         const val TARGET_CHOICE = "target_choice"
+        const val MOVE = "move"
         const val MESSAGE = "message"
         const val ERROR = "error"
     }

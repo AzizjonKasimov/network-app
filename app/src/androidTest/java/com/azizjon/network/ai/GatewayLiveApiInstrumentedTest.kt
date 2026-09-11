@@ -210,6 +210,25 @@ class GatewayLiveApiInstrumentedTest {
         }
         assertTrue(searchReply.assistantMessage.isNotBlank())
         assertTrue(searchReply.results.any { it.person.id == person.id && it.evidence.isNotEmpty() })
+
+        // A re-filing request routes to move and names both ends. Which note it
+        // means is never asked of the gateway, so getting these two names back is
+        // the whole of what the round trip has to deliver.
+        val moveRequest = "Move the note about Alex Rivera onto Dana Whitfield instead"
+        val moveRouted = liveStage("resolveTarget (move routing)") {
+            client.resolveTarget(moveRequest, emptyList(), now, ZoneOffset.UTC, "en-US")
+        }
+        assertEquals(ChatIntent.MOVE, moveRouted.intent)
+        assertTrue(
+            "The person who holds the note must come back as moveFrom, was '${moveRouted.moveFrom}'",
+            moveRouted.moveFrom.contains("Alex", ignoreCase = true),
+        )
+        assertTrue(
+            "The destination must come back as moveTo, was '${moveRouted.moveTo}'",
+            moveRouted.moveTo.contains("Dana", ignoreCase = true),
+        )
+        // A move writes nothing by itself, so it must not smuggle a capture target out.
+        assertTrue(moveRouted.targetName.isBlank())
     }
 
     private suspend fun <T> liveStage(name: String, block: suspend () -> T): T {

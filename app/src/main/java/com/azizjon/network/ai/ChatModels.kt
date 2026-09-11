@@ -11,6 +11,7 @@ import com.azizjon.network.data.AiWriteProposal
 enum class ChatIntent {
     CAPTURE,
     SEARCH,
+    MOVE,
     UNCLEAR,
     ;
 
@@ -18,6 +19,7 @@ enum class ChatIntent {
         fun parse(value: String): ChatIntent = when (value.trim().lowercase()) {
             "capture" -> CAPTURE
             "search" -> SEARCH
+            "move" -> MOVE
             else -> UNCLEAR
         }
     }
@@ -47,6 +49,21 @@ sealed interface ChatAttachment {
     }
 
     data class Search(val results: List<AiPersonSearchResult>) : ChatAttachment
+
+    /**
+     * A re-filing waiting to be confirmed, and then the one that happened.
+     *
+     * The assistant names the two people; which note is a guess, so the card
+     * carries every candidate and the user's pick rather than acting on the
+     * first one. Nothing is written until [movedToPersonId] is set, which is
+     * also what stops the card offering the same move twice.
+     */
+    data class Move(
+        val plan: MovePlan,
+        val movedToPersonId: Long? = null,
+    ) : ChatAttachment {
+        val done: Boolean get() = movedToPersonId != null
+    }
 
     data class TargetChoice(val value: TargetChoiceState) : ChatAttachment
 }
@@ -84,6 +101,7 @@ sealed interface ChatPhase {
     data object Refining : ChatPhase
     data object Searching : ChatPhase
     data object Applying : ChatPhase
+    data object Moving : ChatPhase
 
     val busy: Boolean get() = this != Idle
 
@@ -95,6 +113,7 @@ sealed interface ChatPhase {
             Refining -> "Revising the changes…"
             Searching -> "Searching your network…"
             Applying -> "Saving reviewed changes…"
+            Moving -> "Moving the note…"
         }
 }
 

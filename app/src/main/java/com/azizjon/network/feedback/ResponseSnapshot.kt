@@ -5,6 +5,7 @@ import com.azizjon.network.ai.ChatAttachment
 import com.azizjon.network.ai.ChatMessage
 import com.azizjon.network.data.AiFeedbackEntity
 import com.azizjon.network.data.AiWriteProposal
+import com.azizjon.network.data.MoveDestination
 import com.azizjon.network.data.ProfileField
 import java.time.Instant
 import java.time.ZoneId
@@ -31,6 +32,7 @@ object ResponseSnapshot {
         message.attachment is ChatAttachment.Proposal -> AiFeedbackEntity.Stage.PROPOSAL
         message.attachment is ChatAttachment.Search -> AiFeedbackEntity.Stage.SEARCH
         message.attachment is ChatAttachment.TargetChoice -> AiFeedbackEntity.Stage.TARGET_CHOICE
+        message.attachment is ChatAttachment.Move -> AiFeedbackEntity.Stage.MOVE
         else -> AiFeedbackEntity.Stage.MESSAGE
     }
 
@@ -39,6 +41,7 @@ object ResponseSnapshot {
         when (val attachment = message.attachment) {
             is ChatAttachment.Proposal -> describeProposal(attachment, zoneId)
             is ChatAttachment.Search -> describeSearch(attachment.results)
+            is ChatAttachment.Move -> describeMove(attachment)
             is ChatAttachment.TargetChoice -> buildString {
                 appendLine("Asked which person was meant.")
                 appendLine("Name the assistant resolved: ${attachment.value.targetName}")
@@ -46,6 +49,32 @@ object ResponseSnapshot {
             }.trim()
             null -> ""
         }
+
+    /**
+     * A proposed re-filing, including the notes it did not pick.
+     *
+     * The rejected candidates are the point: when a move lands on the wrong
+     * note, the fault is usually that the right one was sitting beside it.
+     */
+    private fun describeMove(attachment: ChatAttachment.Move): String {
+        val plan = attachment.plan
+        return buildString {
+            appendLine("Proposed moving a note from: ${plan.from.name} (person id ${plan.from.id})")
+            appendLine(
+                "To: " + if (plan.createsPerson) {
+                    "a new person called ${plan.destinationName}"
+                } else {
+                    "${plan.destinationName} (person id ${(plan.destination as? MoveDestination.Existing)?.personId})"
+                },
+            )
+            appendLine("Carried out by the user: ${attachment.done}")
+            section("Notes offered, newest first", plan.candidates.map { candidate ->
+                val mark = if (candidate.interaction.id == plan.selectedInteractionId) " [chosen]" else ""
+                "id ${candidate.interaction.id}, ${candidate.linkedRecords} linked record(s): " +
+                    candidate.interaction.note + mark
+            })
+        }.trim()
+    }
 
     private fun describeProposal(attachment: ChatAttachment.Proposal, zoneId: ZoneId): String {
         val proposal = attachment.proposal

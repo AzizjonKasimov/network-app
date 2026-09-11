@@ -23,6 +23,9 @@ import com.azizjon.network.data.AffiliationEntity
 import com.azizjon.network.data.CapabilityEntity
 import com.azizjon.network.data.FactEntity
 import com.azizjon.network.data.InteractionEntity
+import com.azizjon.network.ai.MoveOutcome
+import com.azizjon.network.ai.MovePlan
+import com.azizjon.network.ai.MovePlanner
 import com.azizjon.network.data.MoveDestination
 import com.azizjon.network.data.NeedEntity
 import com.azizjon.network.data.NetworkSnapshot
@@ -176,6 +179,64 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         showMessage("Moved ${result.summary} to ${result.personName}")
         onMoved(result.personId)
     }
+
+    /** Switches which of the offered notes a pending chat move would re-file. */
+    fun selectChatMoveNote(messageId: Long, interactionId: Long) = updateMessage(messageId) { message ->
+        val attachment = message.attachment as? ChatAttachment.Move
+        if (attachment == null || attachment.done ||
+            attachment.plan.candidates.none { it.interaction.id == interactionId }
+        ) {
+            message
+        } else {
+            message.copy(attachment = attachment.copy(plan = attachment.plan.copy(selectedInteractionId = interactionId)))
+        }
+    }
+
+    /**
+     * Carries out a chat move the user has confirmed.
+     *
+     * The card keeps the person it moved to rather than disappearing, so the
+     * thread still shows what happened and cannot offer the same move twice.
+     */
+    fun confirmChatMove(messageId: Long) {
+        val attachment = chatMove(messageId) ?: return
+        if (_chat.value.phase.busy) return
+        val plan = attachment.plan
+        chatJob?.cancel()
+        chatJob = viewModelScope.launch {
+            settings.markBackupNeeded()
+            refreshBackupState()
+            setPhase(ChatPhase.Moving)
+            try {
+                val result = repository.moveInteraction(plan.selectedInteractionId, plan.destination)
+                updateMessage(messageId) { message ->
+                    message.copy(attachment = attachment.copy(movedToPersonId = result.personId))
+                }
+                appendAssistant("Moved ${result.summary} to ${result.personName}.")
+                scheduleAutoBackup()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                appendAssistant(
+                    error.message ?: "That note could not be moved. Nothing was changed.",
+                    failed = true,
+                )
+            } finally {
+                setPhase(ChatPhase.Idle)
+            }
+        }
+    }
+
+    fun cancelChatMove(messageId: Long) {
+        if (chatMove(messageId) == null) return
+        clearAttachment(messageId)
+        appendAssistant("Left where it was. Nothing was moved.")
+    }
+
+    /** The still-open move on [messageId], or null once it has been carried out. */
+    private fun chatMove(messageId: Long): ChatAttachment.Move? =
+        (_chat.value.messages.firstOrNull { it.id == messageId }?.attachment as? ChatAttachment.Move)
+            ?.takeUnless { it.done }
 
     fun deleteFact(item: FactEntity) = mutate { repository.deleteFact(item) }
 
@@ -453,6 +514,40 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         backupJob = viewModelScope.launch { performBackup(showSuccess = true) }
     }
 
+    /**
+     * Checks that the saved passphrase opens the stored backup, changing nothing.
+     *
+     * Deliberately separate from Restore. The question "can I still get my data
+     * back" should be answerable without the destructive action that answers it
+     * by accident, and a passphrase that has drifted out of sync stays invisible
+     * until then.
+     */
+    fun verifyBackup() {
+        if (_backupState.value.busy) return
+        viewModelScope.launch {
+            val config = settings.config
+            if (!config.configured) {
+                showMessage("Complete and save the GitHub backup settings first")
+                return@launch
+            }
+            setBackupBusy(true)
+            try {
+                val check = backupManager.verify(config)
+                val reports = if (check.feedback == 0) "" else ", ${check.feedback} report(s)"
+                showMessage(
+                    "Passphrase opens the stored backup: ${check.people} people, " +
+                        "${check.interactions} notes$reports",
+                )
+            } catch (e: Exception) {
+                // Left off the backup status on purpose: nothing was attempted,
+                // so a failed check must not make a good backup look broken.
+                showMessage(e.message ?: "The stored backup could not be checked")
+            } finally {
+                setBackupBusy(false)
+            }
+        }
+    }
+
     fun restoreFromGitHub(onRestored: () -> Unit = {}) {
         if (_backupState.value.busy) return
         viewModelScope.launch {
@@ -508,7 +603,7 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
     private suspend fun routeMessage(text: String, history: List<ChatMessage>) {
         // A note that plainly names one saved person, and does not read as a
         // question, is resolved on the phone and skips the routing round trip.
-        if (!ChatRouter.looksLikeQuestion(text)) {
+        if (!ChatRouter.looksLikeQuestion(text) && !ChatRouter.looksLikeMove(text)) {
             val known = PersonResolver.resolveFromNote(snapshot.value.people, text)
             if (known != null) {
                 buildProposal(text, known.name, known, history)
@@ -527,6 +622,10 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
             runSearch(text, history)
             return
         }
+        if (resolution.intent == ChatIntent.MOVE) {
+            prepareMove(resolution.moveFrom, resolution.moveTo)
+            return
+        }
         val candidates = PersonResolver.resolve(snapshot.value.people, resolution.targetName)
         when {
             candidates.exact != null -> buildProposal(text, resolution.targetName, candidates.exact, history)
@@ -537,6 +636,39 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
             )
             else -> buildProposal(text, resolution.targetName, null, history)
         }
+    }
+
+    /**
+     * Offers a move the user asked for in the chat, without a second round trip.
+     *
+     * The gateway supplied two names and nothing else. Which note they mean is
+     * decided here, against records that never left the phone, and then put to
+     * the user as a card: a move rewrites who a stored record belongs to, which
+     * is not something to do on a name match alone.
+     */
+    private fun prepareMove(fromName: String, toName: String) {
+        when (val outcome = MovePlanner.plan(snapshot.value, fromName, toName)) {
+            is MoveOutcome.Problem -> appendAssistant(outcome.message, fromGateway = true)
+            is MoveOutcome.Ready -> appendAssistant(
+                moveIntroduction(outcome.plan),
+                ChatAttachment.Move(outcome.plan),
+                fromGateway = true,
+            )
+        }
+    }
+
+    private fun moveIntroduction(plan: MovePlan): String {
+        val destination = if (plan.createsPerson) {
+            "a new person called ${plan.destinationName}"
+        } else {
+            plan.destinationName
+        }
+        val note = if (plan.candidates.size == 1) {
+            "This is the note it would move."
+        } else {
+            "I picked ${plan.from.name}'s most recent note - choose another if it is the wrong one."
+        }
+        return "I can move a note from ${plan.from.name} to $destination. $note"
     }
 
     private suspend fun runSearch(query: String, history: List<ChatMessage>) {

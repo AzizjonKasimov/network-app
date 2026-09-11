@@ -51,7 +51,9 @@ Anything explicitly stated that is not a position, a need, or a capability becom
 
 A capture sometimes lands on the wrong person, usually somebody mentioned beside the person actually being described. **Move** re-files it: open the person holding the note, find it under **Interactions**, and tap **Move**. One field both filters the people already saved and, when nothing matches, offers to create the person the note really belongs to. The note and every position, need, capability, and background record it created travel together, because each of those stores the id of the interaction that produced it; anything the person gained some other way stays put. Profile fields the capture changed stay behind and need checking by hand, since an overwritten column keeps no trace of where its value came from. The same action sits on the proposal card immediately after a capture is applied, which is when a wrong target is usually noticed.
 
-The assistant still cannot move records itself. It is scoped to one person per request, and moving data between people is exactly the cross-person write that boundary exists to prevent, so the app performs the move directly from a choice you just made. What changed is that a move request now gets told where the **Move** action is instead of only being refused.
+You can also just ask: "move the note about Ana to Ben". The assistant routes that as a move and names the two people, and nothing else about it reaches the gateway — which note you mean, what it created, and how many records travel with it are all worked out on the phone from records that never leave it. The reply is a card showing the note it picked, the other recent notes from that person in case it picked wrong, and what would move; nothing is written until you confirm. A destination nobody matches becomes a new person on confirmation, the same as in the dialog.
+
+The assistant still never performs the move on its own. A move rewrites who a stored record belongs to, which is the one cross-person write the single-person boundary exists to prevent, so it stays a choice you make on a card rather than something a sentence can trigger.
 
 A refusal and an explanation are kept apart. The assistant refuses only what it cannot do safely - more than one person, a deletion, an unidentifiable target - and that discards the proposal. Anything it merely handled awkwardly is reported as a **How this was handled** note on the card, and the proposal stays complete and applicable.
 
@@ -110,6 +112,8 @@ The complete backup is serialized, encrypted on the phone with AES-256-GCM, and 
 
 Keep the passphrase somewhere secure outside the phone. A fresh installation cannot restore the data without it.
 
+**Check the stored backup opens** proves that the passphrase saved on the phone still decrypts the backup sitting in the repository. It downloads the real file, tries the real saved passphrase, reports what it found, and restores nothing. A passphrase that has drifted out of sync — retyped into the pre-filled field, changed on one device and not another — produces backups that look successful and cannot be opened, and nothing reveals that until a restore, which is the one moment there is no second copy to fall back on. Run it after changing the passphrase, and occasionally otherwise.
+
 ## Build and install
 
 Requirements: Windows, JDK 17, and Android SDK 35 or newer.
@@ -166,7 +170,7 @@ The script verifies the active GitHub account and repository visibility, prevent
 - Room schema version 5 adds a standalone `ai_feedback` table for reported assistant answers, with no foreign keys so a report outlives the records it describes. Schema version 6 drops its exported marker, which only ever tracked a share-sheet export that no longer exists.
 - Repository boundary and state-flow presentation with simple application-owned dependency wiring.
 - Local deterministic matching in `NetworkMatcher`, reachable without AI from the **People** tab.
-- Re-filing a misfiled capture in `NetworkDao.moveInteraction`, a single transaction that re-points the interaction and every record carrying its id, creating the destination person when the note belongs to somebody not yet saved.
+- Re-filing a misfiled capture in `NetworkDao.moveInteraction`, a single transaction that re-points the interaction and every record carrying its id, creating the destination person when the note belongs to somebody not yet saved. `MovePlanner` turns a chat move request into the candidate notes and destination for that transaction without asking the gateway anything beyond the two names.
 - Chat routing and privacy-scoped history in `ChatRouter`; conversation state in `ChatModels`.
 - Bounded gateway REST client with validated structured capture coverage and evidence-ID search results.
 - Lifecycle-managed Android speech recognition with on-device preference and a disclosed session-only fallback.

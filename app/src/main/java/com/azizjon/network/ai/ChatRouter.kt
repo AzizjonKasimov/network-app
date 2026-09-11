@@ -16,6 +16,12 @@ object ChatRouter {
     /** Ceiling on replayed history so a long thread cannot crowd out the note. */
     const val MAX_HISTORY_CHARACTERS = 2_000
 
+    private val MOVE_VERBS = Regex("""\b(move|moves|moved|moving|re-?file[ds]?|reassign(ed)?)\b""")
+
+    private val MOVE_PHRASES = listOf(
+        "wrong person", "belongs to", "belongs with", "should be on", "should be under",
+    )
+
     private val QUESTION_OPENERS = setOf(
         "who", "which", "what", "where", "when", "why", "how", "anyone", "anybody",
         "is there", "are there", "do i know", "does anyone", "can anyone", "find", "search",
@@ -38,6 +44,22 @@ object ChatRouter {
         val firstWord = lowered.substringBefore(' ')
         if (firstWord in QUESTION_OPENERS) return true
         return QUESTION_OPENERS.any { opener -> opener.contains(' ') && lowered.startsWith("$opener ") }
+    }
+
+    /**
+     * True when a note reads like a request to re-file an existing note.
+     *
+     * Guards the same offline shortcut as [looksLikeQuestion], for the same
+     * reason. "Move Ana's note to Ben" names two people, but when the
+     * destination is somebody not saved yet only one name is recognisable, and
+     * the shortcut would file the request as a fresh note about Ana instead of
+     * moving hers. A false positive here - "Ana is moving to Berlin" - costs one
+     * round trip and nothing else, because the gateway still decides the intent.
+     */
+    fun looksLikeMove(text: String): Boolean {
+        val lowered = text.trim().lowercase()
+        if (lowered.isEmpty()) return false
+        return MOVE_VERBS.containsMatchIn(lowered) || MOVE_PHRASES.any(lowered::contains)
     }
 
     /**
