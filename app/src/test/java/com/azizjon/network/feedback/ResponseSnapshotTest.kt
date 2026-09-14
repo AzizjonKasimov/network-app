@@ -3,6 +3,7 @@ package com.azizjon.network.feedback
 import com.azizjon.network.ai.ChatAttachment
 import com.azizjon.network.ai.ChatMessage
 import com.azizjon.network.ai.ChatRole
+import com.azizjon.network.data.AiAffiliationAdd
 import com.azizjon.network.data.AiFeedbackEntity
 import com.azizjon.network.data.AiRecordAdd
 import com.azizjon.network.data.AiWriteProposal
@@ -40,6 +41,29 @@ class ResponseSnapshotTest {
         // What the user refused is part of the fault, so it has to be visible.
         assertTrue(detail.contains("Runs a hardware lab [unticked]"))
         assertTrue(detail.contains("Original message stored verbatim"))
+    }
+
+    @Test
+    fun studyIsReportedUnderEducationRatherThanPositions() {
+        val message = assistantMessage(
+            text = "I prepared two changes.",
+            attachment = ChatAttachment.Proposal(
+                proposal = proposal(
+                    newAffiliations = listOf(
+                        AiAffiliationAdd("Brightline Studio", "Product designer"),
+                        AiAffiliationAdd("Cedar Hill Language Institute", "Spanish", current = false, education = true),
+                    ),
+                ),
+            ),
+        )
+
+        val detail = ResponseSnapshot.detailOf(message, zone)
+
+        // The report has to name the heading the user saw each entry under.
+        val positions = detail.substringAfter("New positions:").substringBefore("New education:")
+        assertTrue(positions.contains("Product designer at Brightline Studio [current]"))
+        assertFalse(positions.contains("Cedar Hill"))
+        assertTrue(detail.substringAfter("New education:").contains("Spanish at Cedar Hill Language Institute [past]"))
     }
 
     @Test
@@ -106,6 +130,7 @@ class ResponseSnapshotTest {
         patches: List<ProfilePatch> = emptyList(),
         newNeeds: List<AiRecordAdd> = emptyList(),
         newCapabilities: List<AiRecordAdd> = emptyList(),
+        newAffiliations: List<AiAffiliationAdd> = emptyList(),
     ) = AiWriteProposal(
         rawInput = "Met a synthetic person today",
         targetPersonId = 7,
@@ -114,5 +139,6 @@ class ResponseSnapshotTest {
         profilePatches = patches,
         newNeeds = newNeeds,
         newCapabilities = newCapabilities,
+        newAffiliations = newAffiliations,
     )
 }

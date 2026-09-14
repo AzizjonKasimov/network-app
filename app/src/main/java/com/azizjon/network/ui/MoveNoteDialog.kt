@@ -68,7 +68,7 @@ fun MoveNoteDialog(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    "The note and every position, need, capability, and background record it created move together.",
+                    "The note and every position, education entry, need, capability, and background record it created move together.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(

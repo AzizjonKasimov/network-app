@@ -29,7 +29,7 @@ enum class AiFeedbackLabel(val id: String, val title: String, val description: S
     WRONG_RECORD_TYPE(
         "wrong_record_type",
         "Wrong record type",
-        "Stored as the wrong kind of record - a position, need, capability, or background fact mixed up.",
+        "Stored as the wrong kind of record - a position, education, need, capability, or background fact mixed up.",
     ),
     WRONG_DATE(
         "wrong_date",

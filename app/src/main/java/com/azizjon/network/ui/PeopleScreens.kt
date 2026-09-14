@@ -206,9 +206,12 @@ fun PersonDetailScreen(
     var editing by rememberSaveable(person.id) { mutableStateOf(false) }
     var addKind by rememberSaveable(person.id) { mutableStateOf<RecordKind?>(null) }
     var confirmDelete by rememberSaveable(person.id) { mutableStateOf(false) }
-    var addingAffiliation by rememberSaveable(person.id) { mutableStateOf(false) }
+    // The kind of affiliation being added, or null while the dialog is closed.
+    var addingAffiliationKind by rememberSaveable(person.id) { mutableStateOf<String?>(null) }
     var movingInteraction by remember(person.id) { mutableStateOf<InteractionEntity?>(null) }
-    val affiliations = snapshot.affiliationsFor(person.id)
+    // Study is listed apart from work: a school is not a position, and a heading
+    // that calls it one mislabels it.
+    val (education, positions) = snapshot.affiliationsFor(person.id).partition { it.isEducation }
     val facts = snapshot.factsFor(person.id)
     val interactions = snapshot.interactionsFor(person.id)
     val needs = snapshot.needsFor(person.id)
@@ -231,8 +234,17 @@ fun PersonDetailScreen(
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             ProfileSummary(person, snapshot.affiliationSummary(person.id))
-            RecordSection("Positions", affiliations.size, { addingAffiliation = true }) {
-                affiliations.forEach { item ->
+            RecordSection("Positions", positions.size, { addingAffiliationKind = AffiliationEntity.KIND_WORK }) {
+                positions.forEach { item ->
+                    AffiliationCard(
+                        item = item,
+                        onDelete = { onDeleteAffiliation(item) },
+                        onSetCurrent = { current -> onSetAffiliationCurrent(item, current) },
+                    )
+                }
+            }
+            RecordSection("Education", education.size, { addingAffiliationKind = AffiliationEntity.KIND_EDUCATION }) {
+                education.forEach { item ->
                     AffiliationCard(
                         item = item,
                         onDelete = { onDeleteAffiliation(item) },
@@ -292,12 +304,14 @@ fun PersonDetailScreen(
             },
         )
     }
-    if (addingAffiliation) {
+    addingAffiliationKind?.let { kind ->
+        val addingEducation = kind == AffiliationEntity.KIND_EDUCATION
         AddAffiliationDialog(
-            onDismiss = { addingAffiliation = false },
-            onSave = { organization, role, education ->
-                onAddAffiliation(person.id, organization, role, education)
-                addingAffiliation = false
+            education = addingEducation,
+            onDismiss = { addingAffiliationKind = null },
+            onSave = { organization, role ->
+                onAddAffiliation(person.id, organization, role, addingEducation)
+                addingAffiliationKind = null
             },
         )
     }
@@ -357,45 +371,42 @@ private fun AffiliationCard(
     }
 }
 
+/** Adds work or study, whichever section the dialog was opened from. */
 @Composable
-private fun AddAffiliationDialog(onDismiss: () -> Unit, onSave: (String, String, Boolean) -> Unit) {
+private fun AddAffiliationDialog(education: Boolean, onDismiss: () -> Unit, onSave: (String, String) -> Unit) {
     var organization by remember { mutableStateOf("") }
     var role by remember { mutableStateOf("") }
-    var education by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add a position") },
+        title = { Text(if (education) "Add education" else "Add a position") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    "Someone can hold several at once. Add one for each.",
+                    if (education) {
+                        "Add one for each school or course."
+                    } else {
+                        "Someone can hold several at once. Add one for each."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                 )
                 OutlinedTextField(
                     value = organization,
                     onValueChange = { organization = it },
-                    label = { Text("Organization") },
+                    label = { Text(if (education) "Institution" else "Organization") },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = role,
                     onValueChange = { role = it },
-                    label = { Text(if (education) "Qualification" else "Role") },
+                    label = { Text(if (education) "Subject or qualification" else "Role") },
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(education, { education = it })
-                    Text(
-                        if (education) "Studied here" else "Worked here",
-                        modifier = Modifier.padding(start = 8.dp),
-                    )
-                }
             }
         },
         confirmButton = {
             TextButton(
                 enabled = organization.isNotBlank() || role.isNotBlank(),
-                onClick = { onSave(organization, role, education) },
+                onClick = { onSave(organization, role) },
             ) { Text("Add") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },

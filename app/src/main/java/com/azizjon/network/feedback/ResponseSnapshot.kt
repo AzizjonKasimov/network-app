@@ -3,6 +3,8 @@ package com.azizjon.network.feedback
 import com.azizjon.network.ai.AiPersonSearchResult
 import com.azizjon.network.ai.ChatAttachment
 import com.azizjon.network.ai.ChatMessage
+import com.azizjon.network.data.AiAffiliationAdd
+import com.azizjon.network.data.AiAffiliationEdit
 import com.azizjon.network.data.AiFeedbackEntity
 import com.azizjon.network.data.AiWriteProposal
 import com.azizjon.network.data.MoveDestination
@@ -96,14 +98,11 @@ object ResponseSnapshot {
             })
             section("New needs", proposal.newNeeds.map { it.text + selection(it.selected) })
             section("New capabilities", proposal.newCapabilities.map { it.text + selection(it.selected) })
-            section("New positions", proposal.newAffiliations.map { item ->
-                buildString {
-                    append(positionLabel(item.role, item.organization))
-                    append(if (item.education) " [education]" else " [work]")
-                    append(if (item.current) " [current]" else " [past]")
-                    append(selection(item.selected))
-                }
-            })
+            // Split the way the card shows them, so a report names the heading the
+            // user actually saw an entry under.
+            val (newEducation, newPositions) = proposal.newAffiliations.partition { it.education }
+            section("New positions", newPositions.map(::describeAddition))
+            section("New education", newEducation.map(::describeAddition))
             section("New background facts", proposal.newFacts.map { it.text + selection(it.selected) })
             section("Edited interactions", proposal.interactionEdits.map { edit ->
                 "id ${edit.id} on ${formatDate(edit.occurredAt, zoneId)}: ${edit.note}" + selection(edit.selected)
@@ -114,14 +113,9 @@ object ResponseSnapshot {
             section("Edited capabilities", proposal.capabilityEdits.map { edit ->
                 "id ${edit.id} [${if (edit.active) "active" else "inactive"}]: ${edit.text}" + selection(edit.selected)
             })
-            section("Edited positions", proposal.affiliationEdits.map { edit ->
-                buildString {
-                    append("id ${edit.id}: ${positionLabel(edit.role, edit.organization)}")
-                    append(if (edit.education) " [education]" else " [work]")
-                    append(if (edit.current) " [current]" else " [past]")
-                    append(selection(edit.selected))
-                }
-            })
+            val (editedEducation, editedPositions) = proposal.affiliationEdits.partition { it.education }
+            section("Edited positions", editedPositions.map(::describeEdit))
+            section("Edited education", editedEducation.map(::describeEdit))
             section("Edited background facts", proposal.factEdits.map { edit ->
                 "id ${edit.id}: ${edit.text}" + selection(edit.selected)
             })
@@ -155,6 +149,14 @@ object ResponseSnapshot {
 
     /** Unticked rows matter: they show what the user refused before applying. */
     private fun selection(selected: Boolean): String = if (selected) "" else " [unticked]"
+
+    private fun describeAddition(item: AiAffiliationAdd): String =
+        positionLabel(item.role, item.organization) + tense(item.current) + selection(item.selected)
+
+    private fun describeEdit(edit: AiAffiliationEdit): String =
+        "id ${edit.id}: ${positionLabel(edit.role, edit.organization)}" + tense(edit.current) + selection(edit.selected)
+
+    private fun tense(current: Boolean): String = if (current) " [current]" else " [past]"
 
     private fun positionLabel(role: String, organization: String): String = when {
         organization.isBlank() -> role

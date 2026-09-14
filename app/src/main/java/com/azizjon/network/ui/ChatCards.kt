@@ -161,21 +161,8 @@ fun ProposalCard(
                 )
             }
 
-            ProposalHeading("Positions", proposal.newAffiliations.size)
-            proposal.newAffiliations.forEachIndexed { index, item ->
-                AffiliationAddCard(item) { changed ->
-                    onUpdate(proposal.copy(newAffiliations = proposal.newAffiliations.replace(index, changed)))
-                }
-            }
-
-            ProposalHeading("Position changes", proposal.affiliationEdits.size)
-            proposal.affiliationEdits.forEachIndexed { index, edit ->
-                val before = snapshot.affiliationsFor(proposal.targetPersonId ?: -1)
-                    .firstOrNull { it.id == edit.id }?.label.orEmpty()
-                AffiliationEditCard(edit, before) { changed ->
-                    onUpdate(proposal.copy(affiliationEdits = proposal.affiliationEdits.replace(index, changed)))
-                }
-            }
+            AffiliationSections(proposal, snapshot, education = false, onUpdate = onUpdate)
+            AffiliationSections(proposal, snapshot, education = true, onUpdate = onUpdate)
 
             ProposalHeading("Background", proposal.newFacts.size)
             proposal.newFacts.forEachIndexed { index, item ->
@@ -260,9 +247,14 @@ private fun AppliedProposalSummary(proposal: AiWriteProposal) {
     val lines = buildList {
         proposal.profilePatches.filter { it.selected }.forEach { add("${it.field.displayName()} set") }
         proposal.newAffiliations.filter { it.selected }.forEach {
-            add("Position: " + listOf(it.role, it.organization).filter(String::isNotBlank).joinToString(" at "))
+            add(
+                (if (it.education) "Education: " else "Position: ") +
+                    listOf(it.role, it.organization).filter(String::isNotBlank).joinToString(" at "),
+            )
         }
-        proposal.affiliationEdits.filter { it.selected }.forEach { add("Position #${it.id} updated") }
+        proposal.affiliationEdits.filter { it.selected }.forEach {
+            add((if (it.education) "Education" else "Position") + " #${it.id} updated")
+        }
         proposal.newFacts.filter { it.selected }.forEach { add("Background: ${it.text}") }
         proposal.factEdits.filter { it.selected }.forEach { add("Background #${it.id} updated") }
         proposal.newNeeds.filter { it.selected }.forEach { add("Need: ${it.text}") }
@@ -345,7 +337,7 @@ fun MoveCard(
                     )
                 }
                 Text(
-                    "The note and every position, need, capability, and background record it created move together.",
+                    "The note and every position, education entry, need, capability, and background record it created move together.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
@@ -467,43 +459,119 @@ private fun InteractionEditCard(edit: AiInteractionEdit, before: String, onChang
     if (edit.selected) DateField("Interaction date", edit.occurredAt) { onChange(edit.copy(occurredAt = it)) }
 }
 
-/** One proposed position. Organization and role stay separate so either can be corrected. */
+/**
+ * Proposed work, or proposed study, under its own heading.
+ *
+ * Both are affiliation rows, but study is listed apart: a school is not a job,
+ * and a heading reading "Positions" over one is a mislabel the user then has to
+ * correct against. Flipping an entry's kind moves it to the other heading.
+ */
+@Composable
+private fun AffiliationSections(
+    proposal: AiWriteProposal,
+    snapshot: NetworkSnapshot,
+    education: Boolean,
+    onUpdate: (AiWriteProposal) -> Unit,
+) {
+    val additions = proposal.newAffiliations.withIndex().filter { it.value.education == education }
+    ProposalHeading(if (education) "Education" else "Positions", additions.size)
+    additions.forEach { (index, item) ->
+        AffiliationAddCard(item) { changed ->
+            onUpdate(proposal.copy(newAffiliations = proposal.newAffiliations.replace(index, changed)))
+        }
+    }
+
+    val edits = proposal.affiliationEdits.withIndex().filter { it.value.education == education }
+    ProposalHeading(if (education) "Education changes" else "Position changes", edits.size)
+    edits.forEach { (index, edit) ->
+        val before = snapshot.affiliationsFor(proposal.targetPersonId ?: -1)
+            .firstOrNull { it.id == edit.id }?.label.orEmpty()
+        AffiliationEditCard(edit, before) { changed ->
+            onUpdate(proposal.copy(affiliationEdits = proposal.affiliationEdits.replace(index, changed)))
+        }
+    }
+}
+
+/** One proposed position or place of study. Organization and role stay separate so either can be corrected. */
 @Composable
 private fun AffiliationAddCard(item: AiAffiliationAdd, onChange: (AiAffiliationAdd) -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(item.selected, { onChange(item.copy(selected = it)) })
-                Text("New position", fontWeight = FontWeight.SemiBold)
+                Text(if (item.education) "New education" else "New position", fontWeight = FontWeight.SemiBold)
             }
-            OutlinedTextField(
-                item.organization,
-                { onChange(item.copy(organization = it)) },
+            AffiliationFields(
+                organization = item.organization,
+                role = item.role,
+                education = item.education,
                 enabled = item.selected,
-                label = { Text("Organization") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                item.role,
-                { onChange(item.copy(role = it)) },
-                enabled = item.selected,
-                label = { Text("Role") },
-                modifier = Modifier.fillMaxWidth(),
+                onOrganizationChange = { onChange(item.copy(organization = it)) },
+                onRoleChange = { onChange(item.copy(role = it)) },
             )
             if (item.selected) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(item.current, { onChange(item.copy(current = it)) })
-                    Text(if (item.current) "Current" else "Past", modifier = Modifier.padding(start = 8.dp))
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(item.education, { onChange(item.copy(education = it)) })
-                    Text(
-                        if (item.education) "Studied here" else "Worked here",
-                        modifier = Modifier.padding(start = 8.dp),
-                    )
-                }
+                AffiliationStateControls(
+                    current = item.current,
+                    education = item.education,
+                    onCurrentChange = { onChange(item.copy(current = it)) },
+                    onEducationChange = { onChange(item.copy(education = it)) },
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun AffiliationFields(
+    organization: String,
+    role: String,
+    education: Boolean,
+    enabled: Boolean,
+    onOrganizationChange: (String) -> Unit,
+    onRoleChange: (String) -> Unit,
+) {
+    OutlinedTextField(
+        organization,
+        onOrganizationChange,
+        enabled = enabled,
+        label = { Text(if (education) "Institution" else "Organization") },
+        modifier = Modifier.fillMaxWidth(),
+    )
+    OutlinedTextField(
+        role,
+        onRoleChange,
+        enabled = enabled,
+        label = { Text(if (education) "Subject or qualification" else "Role") },
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+/**
+ * Current/past, and which heading the entry belongs under. The kind is a
+ * button rather than a switch because using it moves the card to the other
+ * heading, and a button says so before it is pressed.
+ */
+@Composable
+private fun AffiliationStateControls(
+    current: Boolean,
+    education: Boolean,
+    onCurrentChange: (Boolean) -> Unit,
+    onEducationChange: (Boolean) -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Switch(current, onCurrentChange)
+        Text(
+            when {
+                education && current -> "Still studying"
+                education -> "Finished"
+                current -> "Current"
+                else -> "Past"
+            },
+            modifier = Modifier.padding(start = 8.dp),
+        )
+    }
+    TextButton(onClick = { onEducationChange(!education) }) {
+        Text(if (education) "This is work, not study" else "This is study, not work")
     }
 }
 
@@ -526,35 +594,27 @@ private fun AffiliationEditCard(edit: AiAffiliationEdit, before: String, onChang
         Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(edit.selected, { onChange(edit.copy(selected = it)) })
-                Text("Edit position #${edit.id}", fontWeight = FontWeight.SemiBold)
+                Text(
+                    (if (edit.education) "Edit education #" else "Edit position #") + edit.id,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
             if (before.isNotBlank()) Text("Before: $before", style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(
-                edit.organization,
-                { onChange(edit.copy(organization = it)) },
+            AffiliationFields(
+                organization = edit.organization,
+                role = edit.role,
+                education = edit.education,
                 enabled = edit.selected,
-                label = { Text("Organization") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                edit.role,
-                { onChange(edit.copy(role = it)) },
-                enabled = edit.selected,
-                label = { Text("Role") },
-                modifier = Modifier.fillMaxWidth(),
+                onOrganizationChange = { onChange(edit.copy(organization = it)) },
+                onRoleChange = { onChange(edit.copy(role = it)) },
             )
             if (edit.selected) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(edit.current, { onChange(edit.copy(current = it)) })
-                    Text(if (edit.current) "Current" else "Past", modifier = Modifier.padding(start = 8.dp))
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(edit.education, { onChange(edit.copy(education = it)) })
-                    Text(
-                        if (edit.education) "Studied here" else "Worked here",
-                        modifier = Modifier.padding(start = 8.dp),
-                    )
-                }
+                AffiliationStateControls(
+                    current = edit.current,
+                    education = edit.education,
+                    onCurrentChange = { onChange(edit.copy(current = it)) },
+                    onEducationChange = { onChange(edit.copy(education = it)) },
+                )
                 DateField("Last confirmed", edit.lastConfirmedAt) { onChange(edit.copy(lastConfirmedAt = it)) }
             }
         }

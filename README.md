@@ -7,8 +7,8 @@ Network App is a private Android memory aid for a personal network. It records w
 The first native Android version includes:
 
 - create, edit, archive, and delete people;
-- record several concurrent positions per person, each with its own organization, role, and current/past state, marked as work or study;
-- keep background facts that are not a need, a capability, or a position as their own dated, editable records;
+- record several concurrent positions per person, each with its own organization, role, and current/past state, with study listed separately under Education;
+- keep background facts that are not a need, a capability, a position, or education as their own dated, editable records;
 - mark a profile as the user's own profile for reciprocal matching;
 - record dated interactions, needs/goals, and capabilities/resources;
 - private on-device matching across profile fields and linked records;
@@ -29,7 +29,7 @@ The first native Android version includes:
 - launch-time and manual signed APK update checks;
 - a PowerShell release workflow matching the existing expense tracker pattern.
 
-The current signed release is [`v0.11.0`](https://github.com/AzizjonKasimov/network-app-releases/releases/tag/v0.11.0) (version code `12`). Its GitHub asset and updater manifest have been verified against the package version, byte size, SHA-256 digest, and pinned signing certificate.
+The current signed release is [`v0.12.0`](https://github.com/AzizjonKasimov/network-app-releases/releases/tag/v0.12.0) (version code `14`). Its GitHub asset and updater manifest have been verified against the package version, byte size, SHA-256 digest, and pinned signing certificate.
 
 Manual capture and local matching remain fully available without the gateway or network access. The assistant never writes directly: create/update requests become editable proposals, and Room is changed only after explicit confirmation.
 
@@ -45,11 +45,13 @@ AI features are optional and route through a **self-hosted gateway** rather than
 
 The original applied text is stored verbatim as an `AI-reviewed capture` interaction. Before returning a proposal, the assistant is instructed to account for each explicit fact as a structured change or an interaction-only fact; the app validates counts, lengths, duplicate profile fields, and duplicate record edits before showing the review. New extracted needs and capabilities retain a provenance link to the source interaction. The assistant cannot archive or delete people, delete records, change the self marker, or modify more than one person in one request.
 
-Positions are their own records rather than a single organization and role on the profile, so someone who is a CEO at one company and a CTO at another keeps both. The assistant proposes one entry per position, each editable and individually selectable before saving, and a position marked as study reads as education rather than a job.
+Positions are their own records rather than a single organization and role on the profile, so someone who is a CEO at one company and a CTO at another keeps both. The assistant proposes one entry per position, each editable and individually selectable before saving.
 
-Anything explicitly stated that is not a position, a need, or a capability becomes a **Background** record: a product's user count, a notable event someone took part in, a piece of history. The assistant chooses in that order, so **Kept only in the original interaction** is now reserved for facts that cannot be attributed to this person at all. Background records are dated, editable, searchable, and citable as evidence in their own right.
+A position is work only: a job, a business someone runs or founded, or freelance, contract, or advisory work. Study - a degree, a language school, a course - is listed under **Education** instead, on the proposal card and on the person alike, and an entry under the wrong heading can be switched before saving. Volunteering, memberships, communities, clubs, and events someone took part in are neither, however formal they sound.
 
-A capture sometimes lands on the wrong person, usually somebody mentioned beside the person actually being described. **Move** re-files it: open the person holding the note, find it under **Interactions**, and tap **Move**. One field both filters the people already saved and, when nothing matches, offers to create the person the note really belongs to. The note and every position, need, capability, and background record it created travel together, because each of those stores the id of the interaction that produced it; anything the person gained some other way stays put. Profile fields the capture changed stay behind and need checking by hand, since an overwritten column keeps no trace of where its value came from. The same action sits on the proposal card immediately after a capture is applied, which is when a wrong target is usually noticed.
+Anything explicitly stated that is not a position, education, a need, or a capability becomes a **Background** record: a product's user count, a notable event someone took part in, a club someone belongs to, a piece of history. The assistant chooses in that order, so **Kept only in the original interaction** is now reserved for facts that cannot be attributed to this person at all. Background records are dated, editable, searchable, and citable as evidence in their own right.
+
+A capture sometimes lands on the wrong person, usually somebody mentioned beside the person actually being described. **Move** re-files it: open the person holding the note, find it under **Interactions**, and tap **Move**. One field both filters the people already saved and, when nothing matches, offers to create the person the note really belongs to. The note and every position, education entry, need, capability, and background record it created travel together, because each of those stores the id of the interaction that produced it; anything the person gained some other way stays put. Profile fields the capture changed stay behind and need checking by hand, since an overwritten column keeps no trace of where its value came from. The same action sits on the proposal card immediately after a capture is applied, which is when a wrong target is usually noticed.
 
 You can also just ask: "move the note about Ana to Ben". The assistant routes that as a move and names the two people, and nothing else about it reaches the gateway — which note you mean, what it created, and how many records travel with it are all worked out on the phone from records that never leave it. The reply is a card showing the note it picked, the other recent notes from that person in case it picked wrong, and what would move; nothing is written until you confirm. A destination nobody matches becomes a new person on confirmation, the same as in the dialog.
 

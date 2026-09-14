@@ -15,6 +15,7 @@ import java.time.Instant
 import java.time.ZoneOffset
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -197,6 +198,35 @@ class GatewayLiveApiInstrumentedTest {
                 dual.interactionOnlyFacts.isNotEmpty(),
         )
         Log.i(TAG, "two-role caveat present: ${dualReply.caveat != null}")
+
+        // Only work is a position and only study is education. A volunteer shift
+        // and a club membership are neither, however organised they sound, and
+        // must not appear under a heading that says otherwise.
+        val mixed = "Marta Okafor is a product designer at Brightline Studio. She studied Spanish at " +
+            "Cedar Hill Language Institute last year, volunteers at Harbor Animal Shelter on weekends, " +
+            "and is a member of the Riverside Hiking Club."
+        val mixedReply = liveStage("proposeChanges (work, study, and neither)") {
+            client.proposeChanges(
+                input = mixed,
+                targetName = "Marta Okafor",
+                snapshot = NetworkSnapshot(),
+                person = null,
+                now = now,
+                zoneId = ZoneOffset.UTC,
+                locale = "en-US",
+            )
+        }
+        val (study, work) = mixedReply.proposal.newAffiliations.partition { it.education }
+        val workText = work.joinToString(" | ") { "${it.role} at ${it.organization}" }
+        val studyText = study.joinToString(" | ") { "${it.role} at ${it.organization}" }
+        assertTrue("The job must be a position, got '$workText'", workText.contains("Brightline", ignoreCase = true))
+        listOf("Spanish", "Cedar Hill", "Shelter", "Hiking").forEach { word ->
+            assertFalse("'$word' is not work but came back as a position: '$workText'", workText.contains(word, ignoreCase = true))
+        }
+        listOf("Shelter", "Hiking").forEach { word ->
+            assertFalse("'$word' is not study but came back as education: '$studyText'", studyText.contains(word, ignoreCase = true))
+        }
+        Log.i(TAG, "mixed note: ${work.size} work, ${study.size} study, ${mixedReply.proposal.newFacts.size} facts")
 
         // A question routes to search instead of a write, with no target person.
         val question = "Who can build Kotlin prototypes?"
