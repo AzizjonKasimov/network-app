@@ -46,7 +46,14 @@ data class InteractionEntity(
 ) {
     companion object {
         const val ORIGIN_MANUAL = "manual"
+
+        /** Saved by the review-card flow in versions before the assistant became an agent. */
         const val ORIGIN_AI_REVIEWED = "ai_reviewed"
+
+        /** Saved by the assistant directly, undoable from the reply that saved it. */
+        const val ORIGIN_ASSISTANT = "assistant"
+
+        val ORIGINS = setOf(ORIGIN_MANUAL, ORIGIN_AI_REVIEWED, ORIGIN_ASSISTANT)
     }
 }
 
@@ -204,9 +211,9 @@ data class FactEntity(
 /**
  * One assistant response the user marked as wrong, kept for later analysis.
  *
- * The chat thread is memory-only and a proposal card disappears the moment it
- * is applied or a new chat starts, so a report has to copy the response into
- * itself rather than point at it. That makes each row self-contained: it can be
+ * The chat thread is memory-only and a reply's card disappears when a new chat
+ * starts, so a report has to copy the response into itself rather than point
+ * at it. That makes each row self-contained: it can be
  * read and acted on long after the conversation is gone.
  *
  * This is diagnostic data about the assistant rather than a network record, so
@@ -237,11 +244,15 @@ data class AiFeedbackEntity(
     val createdAt: Long,
 ) {
     object Stage {
+        /** A reply from the agent, with whatever it saved or queued for confirmation. */
+        const val AGENT = "agent"
+        const val MESSAGE = "message"
+        const val ERROR = "error"
+
+        // Written by versions before the agent, and still found in older reports.
         const val PROPOSAL = "proposal"
         const val SEARCH = "search"
         const val TARGET_CHOICE = "target_choice"
         const val MOVE = "move"
-        const val MESSAGE = "message"
-        const val ERROR = "error"
     }
 }

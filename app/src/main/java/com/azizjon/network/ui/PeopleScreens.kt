@@ -273,7 +273,11 @@ fun PersonDetailScreen(
                         text = item.note,
                         timestamp = item.occurredAt,
                         onDelete = { onDeleteInteraction(item) },
-                        status = if (item.origin == InteractionEntity.ORIGIN_AI_REVIEWED) "AI-reviewed capture" else "",
+                        status = when (item.origin) {
+                            InteractionEntity.ORIGIN_AI_REVIEWED -> "AI-reviewed capture"
+                            InteractionEntity.ORIGIN_ASSISTANT -> "Saved by the assistant"
+                            else -> ""
+                        },
                         onMove = { movingInteraction = item },
                     )
                 }

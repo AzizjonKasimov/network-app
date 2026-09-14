@@ -1,173 +1,70 @@
 package com.azizjon.network.feedback
 
-import com.azizjon.network.ai.AiPersonSearchResult
+import com.azizjon.network.ai.ActionState
 import com.azizjon.network.ai.ChatAttachment
 import com.azizjon.network.ai.ChatMessage
-import com.azizjon.network.data.AiAffiliationAdd
-import com.azizjon.network.data.AiAffiliationEdit
 import com.azizjon.network.data.AiFeedbackEntity
-import com.azizjon.network.data.AiWriteProposal
-import com.azizjon.network.data.MoveDestination
-import com.azizjon.network.data.ProfileField
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 /**
  * Flattens an assistant response into the plain text a report stores.
  *
  * A report has to stand on its own. The card under a message is live Compose
- * state that disappears when the proposal is applied or the thread is cleared,
- * so the moment the user reports it, everything worth analysing is copied out
- * as text. Reading it later needs no app, no database, and no chat thread.
+ * state that disappears when the thread is cleared, so the moment the user
+ * reports it, everything worth analysing is copied out as text. Reading it
+ * later needs no app, no database, and no chat thread.
  *
- * Contact values never make it out: a contact patch is recorded as having
- * happened without its value, because a report is meant to be shareable and a
- * phone number is not a fault description.
+ * Contact values never make it out: tool calls are recorded with any contact
+ * argument replaced before they reach the card, because a report is meant to
+ * be shareable and a phone number is not a fault description.
  */
 object ResponseSnapshot {
-    const val CONTACT_PLACEHOLDER = "<contact value omitted from reports>"
-
-    /** Which assistant step produced [message], for grouping in the report. */
+    /** Which kind of reply [message] was, for grouping in the report. */
     fun stageOf(message: ChatMessage): String = when {
         message.failed -> AiFeedbackEntity.Stage.ERROR
-        message.attachment is ChatAttachment.Proposal -> AiFeedbackEntity.Stage.PROPOSAL
-        message.attachment is ChatAttachment.Search -> AiFeedbackEntity.Stage.SEARCH
-        message.attachment is ChatAttachment.TargetChoice -> AiFeedbackEntity.Stage.TARGET_CHOICE
-        message.attachment is ChatAttachment.Move -> AiFeedbackEntity.Stage.MOVE
+        message.attachment is ChatAttachment.AgentResult -> AiFeedbackEntity.Stage.AGENT
         else -> AiFeedbackEntity.Stage.MESSAGE
     }
 
     /** The card under [message] as readable text, or empty when it carries none. */
-    fun detailOf(message: ChatMessage, zoneId: ZoneId = ZoneId.systemDefault()): String =
+    fun detailOf(message: ChatMessage): String =
         when (val attachment = message.attachment) {
-            is ChatAttachment.Proposal -> describeProposal(attachment, zoneId)
-            is ChatAttachment.Search -> describeSearch(attachment.results)
-            is ChatAttachment.Move -> describeMove(attachment)
-            is ChatAttachment.TargetChoice -> buildString {
-                appendLine("Asked which person was meant.")
-                appendLine("Name the assistant resolved: ${attachment.value.targetName}")
-                appendLine("Offered: " + attachment.value.suggestions.joinToString(", ") { it.name })
-            }.trim()
+            is ChatAttachment.AgentResult -> describeAgentResult(attachment)
             null -> ""
         }
 
     /**
-     * A proposed re-filing, including the notes it did not pick.
+     * Everything the reply did, with the tool calls that did it.
      *
-     * The rejected candidates are the point: when a move lands on the wrong
-     * note, the fault is usually that the right one was sitting beside it.
+     * The calls are the point: a note filed on the wrong person shows up as the
+     * find_people query that matched the wrong name, which the saved lines alone
+     * would never reveal.
      */
-    private fun describeMove(attachment: ChatAttachment.Move): String {
-        val plan = attachment.plan
-        return buildString {
-            appendLine("Proposed moving a note from: ${plan.from.name} (person id ${plan.from.id})")
-            appendLine(
-                "To: " + if (plan.createsPerson) {
-                    "a new person called ${plan.destinationName}"
-                } else {
-                    "${plan.destinationName} (person id ${(plan.destination as? MoveDestination.Existing)?.personId})"
-                },
-            )
-            appendLine("Carried out by the user: ${attachment.done}")
-            section("Notes offered, newest first", plan.candidates.map { candidate ->
-                val mark = if (candidate.interaction.id == plan.selectedInteractionId) " [chosen]" else ""
-                "id ${candidate.interaction.id}, ${candidate.linkedRecords} linked record(s): " +
-                    candidate.interaction.note + mark
-            })
-        }.trim()
-    }
-
-    private fun describeProposal(attachment: ChatAttachment.Proposal, zoneId: ZoneId): String {
-        val proposal = attachment.proposal
-        return buildString {
-            appendLine("Proposed changes for: ${proposal.targetName}")
-            appendLine(
-                "Target: " + if (proposal.targetPersonId == null) {
-                    "new person"
-                } else {
-                    "existing person id ${proposal.targetPersonId}"
-                },
-            )
-            appendLine("Interaction date: ${formatDate(proposal.occurredAt, zoneId)}")
-            appendLine("Applied by the user: ${attachment.applied}")
-            attachment.caveat?.takeIf { it.isNotBlank() }?.let { appendLine("Caveat shown: $it") }
-            section("Profile changes", proposal.profilePatches.map { patch ->
-                val value = if (patch.field == ProfileField.CONTACT) CONTACT_PLACEHOLDER else patch.value
-                "${patch.field.name.lowercase()} -> $value" + selection(patch.selected)
-            })
-            section("New needs", proposal.newNeeds.map { it.text + selection(it.selected) })
-            section("New capabilities", proposal.newCapabilities.map { it.text + selection(it.selected) })
-            // Split the way the card shows them, so a report names the heading the
-            // user actually saw an entry under.
-            val (newEducation, newPositions) = proposal.newAffiliations.partition { it.education }
-            section("New positions", newPositions.map(::describeAddition))
-            section("New education", newEducation.map(::describeAddition))
-            section("New background facts", proposal.newFacts.map { it.text + selection(it.selected) })
-            section("Edited interactions", proposal.interactionEdits.map { edit ->
-                "id ${edit.id} on ${formatDate(edit.occurredAt, zoneId)}: ${edit.note}" + selection(edit.selected)
-            })
-            section("Edited needs", proposal.needEdits.map { edit ->
-                "id ${edit.id} [${edit.status}]: ${edit.text}" + selection(edit.selected)
-            })
-            section("Edited capabilities", proposal.capabilityEdits.map { edit ->
-                "id ${edit.id} [${if (edit.active) "active" else "inactive"}]: ${edit.text}" + selection(edit.selected)
-            })
-            val (editedEducation, editedPositions) = proposal.affiliationEdits.partition { it.education }
-            section("Edited positions", editedPositions.map(::describeEdit))
-            section("Edited education", editedEducation.map(::describeEdit))
-            section("Edited background facts", proposal.factEdits.map { edit ->
-                "id ${edit.id}: ${edit.text}" + selection(edit.selected)
-            })
-            section("Left in the interaction only", proposal.interactionOnlyFacts)
-            appendLine()
-            appendLine("Original message stored verbatim as the interaction note:")
-            append(proposal.rawInput)
-        }.trim()
-    }
-
-    private fun describeSearch(results: List<AiPersonSearchResult>): String = buildString {
-        appendLine("Returned ${results.size} candidate(s).")
-        results.forEachIndexed { index, result ->
-            appendLine()
-            appendLine("${index + 1}. ${result.person.name} (person id ${result.person.id})")
-            appendLine("   Reasoning: ${result.reasoning}")
-            appendLine("   Uncertainty: ${result.uncertainty}")
-            result.evidence.forEach { evidence ->
-                appendLine("   Evidence [${evidence.kind} ${evidence.id}]: ${evidence.text}")
-            }
-        }
+    private fun describeAgentResult(result: ChatAttachment.AgentResult): String = buildString {
+        section("Saved", result.saved)
+        if (result.undone) appendLine("Undone by the user afterwards.")
+        result.undoError?.let { appendLine("Undo was refused: $it") }
+        section(
+            "Waiting for confirmation",
+            result.pending.map { item ->
+                val state = when (item.state) {
+                    ActionState.PENDING -> "not answered"
+                    ActionState.DONE -> "confirmed"
+                    ActionState.KEPT -> "declined"
+                    ActionState.FAILED -> "failed: ${item.outcome}"
+                }
+                "${item.action.description} [$state]"
+            },
+        )
+        section("Tool calls, in order", result.calls)
     }.trim()
 
-    /** Skips a heading entirely when nothing under it changed. */
+    /** Skips a heading entirely when nothing under it happened. */
     private fun StringBuilder.section(title: String, values: List<String>) {
         if (values.isEmpty()) return
         appendLine()
         appendLine("$title:")
         values.forEach { appendLine("- $it") }
     }
-
-    /** Unticked rows matter: they show what the user refused before applying. */
-    private fun selection(selected: Boolean): String = if (selected) "" else " [unticked]"
-
-    private fun describeAddition(item: AiAffiliationAdd): String =
-        positionLabel(item.role, item.organization) + tense(item.current) + selection(item.selected)
-
-    private fun describeEdit(edit: AiAffiliationEdit): String =
-        "id ${edit.id}: ${positionLabel(edit.role, edit.organization)}" + tense(edit.current) + selection(edit.selected)
-
-    private fun tense(current: Boolean): String = if (current) " [current]" else " [past]"
-
-    private fun positionLabel(role: String, organization: String): String = when {
-        organization.isBlank() -> role
-        role.isBlank() -> organization
-        else -> "$role at $organization"
-    }
-
-    private val dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
-
-    private fun formatDate(timestamp: Long, zoneId: ZoneId): String =
-        Instant.ofEpochMilli(timestamp).atZone(zoneId).format(dateFormatter)
 }
 
 /** Builds the row stored when the user reports [message] as wrong. */
@@ -178,14 +75,13 @@ fun buildFeedback(
     note: String,
     appVersion: String,
     now: Long = System.currentTimeMillis(),
-    zoneId: ZoneId = ZoneId.systemDefault(),
 ): AiFeedbackEntity = AiFeedbackEntity(
     stage = ResponseSnapshot.stageOf(message),
     label = label.id,
     note = note,
     userMessage = userMessage,
     assistantMessage = message.text,
-    assistantDetail = ResponseSnapshot.detailOf(message, zoneId),
+    assistantDetail = ResponseSnapshot.detailOf(message),
     appVersion = appVersion,
     createdAt = now,
 )

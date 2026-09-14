@@ -5,13 +5,12 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
 /**
- * Keeps the unsent capture note on disk.
+ * Keeps the unsent message on disk.
  *
- * Nothing in the capture flow is persisted until the user applies a proposal, so
- * a process death while the assistant is working - which Android is free to
- * cause once the app is backgrounded - used to take the typed or dictated note
- * with it. A draft names real people, so it is encrypted at rest like the
- * gateway token rather than left in plain preferences.
+ * A process death before the message is sent - which Android is free to cause
+ * once the app is backgrounded - used to take the typed or dictated note with
+ * it. A draft names real people, so it is encrypted at rest like the gateway
+ * token rather than left in plain preferences.
  */
 class CaptureDraftStore(context: Context) {
     private val secrets = EncryptedSharedPreferences.create(

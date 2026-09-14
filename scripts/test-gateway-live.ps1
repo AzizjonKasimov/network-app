@@ -17,7 +17,7 @@ $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $localPropertiesPath = Join-Path $projectRoot "local.properties"
 
-$testClass = "com.azizjon.network.ai.GatewayLiveApiInstrumentedTest"
+$testClass = "com.azizjon.network.ai.AssistantLiveInstrumentedTest"
 $testRunner = "com.azizjon.network.test/androidx.test.runner.AndroidJUnitRunner"
 
 $sdkLine = Get-Content -LiteralPath $localPropertiesPath |
@@ -66,5 +66,5 @@ try {
 }
 
 Write-Host ""
-Write-Host "Live gateway routing, capture, refinement, and search passed."
+Write-Host "Live agent capture, multi-person update, question, queued delete, and undo passed."
 Write-Host "The app is still installed and the saved token was not touched."

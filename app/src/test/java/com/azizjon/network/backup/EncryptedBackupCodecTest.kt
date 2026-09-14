@@ -170,6 +170,19 @@ class EncryptedBackupCodecTest {
         assertEquals("Legacy Person", restored.snapshot.people.single().name)
     }
 
+    @Test
+    fun notesTheAssistantSavedRoundTripAndUnknownOriginsAreRejected() {
+        val snapshot = sampleSnapshot().let { sample ->
+            sample.copy(interactions = sample.interactions + InteractionEntity(9, 1, "Saved by the agent", 3, 4, InteractionEntity.ORIGIN_ASSISTANT))
+        }
+        val restored = EncryptedBackupCodec.payloadFromJson(EncryptedBackupCodec.payloadToJson(BackupPayload(snapshot)))
+        assertEquals(InteractionEntity.ORIGIN_ASSISTANT, restored.snapshot.interactions.single { it.id == 9L }.origin)
+
+        val tampered = JSONObject(EncryptedBackupCodec.payloadToJson(BackupPayload(snapshot)))
+        tampered.getJSONArray("interactions").getJSONObject(0).put("origin", "somewhere_else")
+        assertThrows(BackupCodecException::class.java) { EncryptedBackupCodec.payloadFromJson(tampered.toString()) }
+    }
+
     private fun sampleSnapshot(): NetworkSnapshot {
         val person = PersonEntity(id = 1, name = "Sample Person", createdAt = 1, updatedAt = 2)
         return NetworkSnapshot(

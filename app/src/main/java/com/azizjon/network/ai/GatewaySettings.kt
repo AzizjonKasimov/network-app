@@ -6,7 +6,8 @@ import androidx.security.crypto.MasterKey
 
 data class GatewaySettingsState(
     val tokenSaved: Boolean = false,
-    val fullNetworkSearchConsent: Boolean = false,
+    /** The user accepted that the assistant reads whatever records it needs. */
+    val assistantConsent: Boolean = false,
 )
 
 /**
@@ -34,12 +35,18 @@ class GatewaySettings(context: Context) {
             context.deleteSharedPreferences(LEGACY_SECRET_PREFERENCES_NAME)
             context.deleteSharedPreferences(LEGACY_PREFERENCES_NAME)
         }
+        // The old consent covered searches sending the network. The assistant now
+        // reads any record whenever it decides to, which is a different promise,
+        // so it is asked for again rather than carried over.
+        if (preferences.contains(LEGACY_KEY_SEARCH_CONSENT)) {
+            preferences.edit().remove(LEGACY_KEY_SEARCH_CONSENT).apply()
+        }
     }
 
     val state: GatewaySettingsState
         get() = GatewaySettingsState(
             tokenSaved = !token().isNullOrBlank(),
-            fullNetworkSearchConsent = preferences.getBoolean(KEY_SEARCH_CONSENT, false),
+            assistantConsent = preferences.getBoolean(KEY_ASSISTANT_CONSENT, false),
         )
 
     fun token(): String? = secrets.getString(KEY_TOKEN, null)
@@ -57,8 +64,8 @@ class GatewaySettings(context: Context) {
         secrets.edit().remove(KEY_TOKEN).apply()
     }
 
-    fun setFullNetworkSearchConsent(accepted: Boolean) {
-        preferences.edit().putBoolean(KEY_SEARCH_CONSENT, accepted).apply()
+    fun setAssistantConsent(accepted: Boolean) {
+        preferences.edit().putBoolean(KEY_ASSISTANT_CONSENT, accepted).apply()
     }
 
     companion object {
@@ -67,7 +74,8 @@ class GatewaySettings(context: Context) {
         private const val PREFERENCES_NAME = "gateway_settings"
         private const val SECRET_PREFERENCES_NAME = "gateway_credentials"
         private const val KEY_TOKEN = "token"
-        private const val KEY_SEARCH_CONSENT = "full_network_search_consent"
+        private const val KEY_ASSISTANT_CONSENT = "assistant_consent"
+        private const val LEGACY_KEY_SEARCH_CONSENT = "full_network_search_consent"
 
         private const val LEGACY_PREFERENCES_NAME = "gemini_settings"
         private const val LEGACY_SECRET_PREFERENCES_NAME = "gemini_credentials"

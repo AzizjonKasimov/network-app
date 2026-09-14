@@ -4,41 +4,39 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.azizjon.network.NetworkApplication
+import com.azizjon.network.ai.ActionState
+import com.azizjon.network.ai.AgentClient
 import com.azizjon.network.ai.AiRequestService
+import com.azizjon.network.ai.AssistantAgent
+import com.azizjon.network.ai.AssistantPrompt
+import com.azizjon.network.ai.AssistantTools
 import com.azizjon.network.ai.ChatAttachment
-import com.azizjon.network.ai.ChatIntent
 import com.azizjon.network.ai.ChatMessage
 import com.azizjon.network.ai.ChatPhase
 import com.azizjon.network.ai.ChatRole
-import com.azizjon.network.ai.ChatRouter
 import com.azizjon.network.ai.ChatState
-import com.azizjon.network.ai.GatewayClient
-import com.azizjon.network.ai.GatewayException
 import com.azizjon.network.ai.GatewaySettingsState
-import com.azizjon.network.ai.PersonResolver
-import com.azizjon.network.ai.TargetChoiceState
+import com.azizjon.network.ai.PendingAction
+import com.azizjon.network.ai.PendingItem
 import com.azizjon.network.backup.BackupStatus
 import com.azizjon.network.backup.GitHubBackupConfig
 import com.azizjon.network.data.AffiliationEntity
+import com.azizjon.network.data.AiFeedbackEntity
 import com.azizjon.network.data.CapabilityEntity
 import com.azizjon.network.data.FactEntity
 import com.azizjon.network.data.InteractionEntity
-import com.azizjon.network.ai.MoveOutcome
-import com.azizjon.network.ai.MovePlan
-import com.azizjon.network.ai.MovePlanner
 import com.azizjon.network.data.MoveDestination
 import com.azizjon.network.data.NeedEntity
 import com.azizjon.network.data.NetworkSnapshot
-import com.azizjon.network.data.AiWriteProposal
 import com.azizjon.network.data.PersonDraft
-import com.azizjon.network.data.AiFeedbackEntity
 import com.azizjon.network.data.PersonEntity
+import com.azizjon.network.data.UndoConflictException
 import com.azizjon.network.feedback.AiFeedbackLabel
 import com.azizjon.network.feedback.buildFeedback
 import com.azizjon.network.feedback.installedAppVersion
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -48,9 +46,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.time.Instant
-import java.time.ZoneId
-import java.util.Locale
 
 data class BackupUiState(
     val config: GitHubBackupConfig,
@@ -66,8 +61,17 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
     private val settings = app.backupSettings
     private val backupManager = app.backupManager
     private val gatewaySettings = app.gatewaySettings
-    private val gatewayClient = app.gatewayClient
+    private val assistantStore = app.assistantStore
     private val captureDraftStore = app.captureDraftStore
+    private val agent = AssistantAgent(
+        client = app.agentClient,
+        tools = AssistantTools(
+            store = assistantStore,
+            // Marked before the write rather than after the turn, so a process
+            // killed mid-turn still leaves the backup flagged as due.
+            beforeWrite = { settings.markBackupNeeded() },
+        ),
+    )
 
     val snapshot: StateFlow<NetworkSnapshot> = repository.observeSnapshot().stateIn(
         viewModelScope,
@@ -87,9 +91,9 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
     private val _chat = MutableStateFlow(ChatState())
     val chat: StateFlow<ChatState> = _chat.asStateFlow()
 
-    /** The question waiting on the one-time full-network disclosure, if any. */
-    private val _searchConsentRequest = MutableStateFlow<String?>(null)
-    val searchConsentRequest: StateFlow<String?> = _searchConsentRequest.asStateFlow()
+    /** True while the one-time assistant disclosure is waiting on an answer. */
+    private val _consentRequested = MutableStateFlow(false)
+    val consentRequested: StateFlow<Boolean> = _consentRequested.asStateFlow()
 
     val feedbackState: StateFlow<FeedbackUiState> = repository.observeFeedback()
         .map(::FeedbackUiState)
@@ -109,7 +113,6 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
     private var chatJob: Job? = null
     private var draftSaveJob: Job? = null
     private var nextMessageId = 1L
-    private var pendingSearch: PendingSearch? = null
 
     init {
         if (settings.status.backupNeeded) scheduleAutoBackup()
@@ -162,14 +165,7 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
 
     fun addFact(personId: Long, text: String) = mutate { repository.addFact(personId, text) }
 
-    /**
-     * Moves a note filed against the wrong person onto the right one.
-     *
-     * The assistant cannot do this itself - it is scoped to one person per
-     * request, and moving records between people is exactly the kind of
-     * cross-person write that boundary exists to prevent. So the app performs
-     * it directly, from an explicit choice the user just made.
-     */
+    /** Moves a note filed against the wrong person onto the right one, from the person screen. */
     fun moveInteraction(
         interactionId: Long,
         destination: MoveDestination,
@@ -179,64 +175,6 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         showMessage("Moved ${result.summary} to ${result.personName}")
         onMoved(result.personId)
     }
-
-    /** Switches which of the offered notes a pending chat move would re-file. */
-    fun selectChatMoveNote(messageId: Long, interactionId: Long) = updateMessage(messageId) { message ->
-        val attachment = message.attachment as? ChatAttachment.Move
-        if (attachment == null || attachment.done ||
-            attachment.plan.candidates.none { it.interaction.id == interactionId }
-        ) {
-            message
-        } else {
-            message.copy(attachment = attachment.copy(plan = attachment.plan.copy(selectedInteractionId = interactionId)))
-        }
-    }
-
-    /**
-     * Carries out a chat move the user has confirmed.
-     *
-     * The card keeps the person it moved to rather than disappearing, so the
-     * thread still shows what happened and cannot offer the same move twice.
-     */
-    fun confirmChatMove(messageId: Long) {
-        val attachment = chatMove(messageId) ?: return
-        if (_chat.value.phase.busy) return
-        val plan = attachment.plan
-        chatJob?.cancel()
-        chatJob = viewModelScope.launch {
-            settings.markBackupNeeded()
-            refreshBackupState()
-            setPhase(ChatPhase.Moving)
-            try {
-                val result = repository.moveInteraction(plan.selectedInteractionId, plan.destination)
-                updateMessage(messageId) { message ->
-                    message.copy(attachment = attachment.copy(movedToPersonId = result.personId))
-                }
-                appendAssistant("Moved ${result.summary} to ${result.personName}.")
-                scheduleAutoBackup()
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                appendAssistant(
-                    error.message ?: "That note could not be moved. Nothing was changed.",
-                    failed = true,
-                )
-            } finally {
-                setPhase(ChatPhase.Idle)
-            }
-        }
-    }
-
-    fun cancelChatMove(messageId: Long) {
-        if (chatMove(messageId) == null) return
-        clearAttachment(messageId)
-        appendAssistant("Left where it was. Nothing was moved.")
-    }
-
-    /** The still-open move on [messageId], or null once it has been carried out. */
-    private fun chatMove(messageId: Long): ChatAttachment.Move? =
-        (_chat.value.messages.firstOrNull { it.id == messageId }?.attachment as? ChatAttachment.Move)
-            ?.takeUnless { it.done }
 
     fun deleteFact(item: FactEntity) = mutate { repository.deleteFact(item) }
 
@@ -257,148 +195,152 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
-     * Sends the composer text as the next turn in the thread.
+     * Sends the composer text to the assistant as the next turn in the thread.
      *
-     * While a proposal is open the turn refines it instead of starting a new
-     * capture. That is what makes a correction cheap: the pending proposal goes
-     * back with the correction, so the assistant revises it rather than
-     * re-deriving everything from the original note.
+     * The first message waits on the one-time disclosure: from here on the
+     * assistant reads whichever records it decides it needs, and the user should
+     * agree to that once before it happens.
      */
     fun sendChatMessage() {
         val text = _composerDraft.value.trim()
         if (_chat.value.phase.busy || text.isEmpty()) return
-        val history = _chat.value.messages
-        val pending = _chat.value.pendingProposal
-        // Typing instead of picking abandons an open person picker. Drop the card
-        // so a later tap cannot resurrect the message it was asked about.
-        _chat.value.pendingTargetChoice?.let { (messageId, _) -> clearAttachment(messageId) }
+        if (text.length > AgentClient.MAX_INPUT_CHARACTERS) {
+            showMessage("That message is too long. Keep it under ${AgentClient.MAX_INPUT_CHARACTERS} characters.")
+            return
+        }
+        if (!agent.configured) {
+            showMessage("Add an access token in Settings first.")
+            return
+        }
+        if (!_gatewaySettingsState.value.assistantConsent) {
+            _consentRequested.value = true
+            return
+        }
+        val history = AssistantPrompt.history(_chat.value.messages)
         appendUser(text)
         _composerDraft.value = ""
         viewModelScope.launch { clearDraft() }
 
-        if (text.length > GatewayClient.MAX_INPUT_CHARACTERS) {
-            appendAssistant(
-                "That message is too long. Keep it under " + "${GatewayClient.MAX_INPUT_CHARACTERS} characters.",
-                failed = true,
-            )
-            return
-        }
-        if (!gatewayClient.configured) {
-            appendAssistant("Add an access token in Settings first.", failed = true)
-            return
-        }
-        launchChat {
-            if (pending != null) {
-                refineProposal(pending.first, pending.second, text, history)
-            } else {
-                routeMessage(text, history)
-            }
-        }
-    }
-
-    fun chooseChatTarget(personId: Long?) {
-        val (messageId, choice) = _chat.value.pendingTargetChoice ?: return
-        if (_chat.value.phase.busy) return
-        val person = personId?.let(snapshot.value::person)
-        if (personId != null && (person == null || person.archived)) {
-            appendAssistant("That person is no longer available.", failed = true)
-            return
-        }
-        val history = messagesBefore(messageId)
-        clearAttachment(messageId)
-        launchChat { buildProposal(choice.rawInput, choice.targetName, person, history) }
-    }
-
-    /** Reopens the person picker for the proposal still under review. */
-    fun changeChatProposalTarget() {
-        val (messageId, proposal) = _chat.value.pendingProposal ?: return
-        if (_chat.value.phase.busy) return
-        val activePeople = snapshot.value.people.filterNot { it.archived }.sortedBy { it.name.lowercase() }
-        updateMessage(messageId) {
-            it.copy(
-                attachment = ChatAttachment.TargetChoice(
-                    TargetChoiceState(proposal.rawInput, proposal.targetName, activePeople),
-                ),
-            )
-        }
-    }
-
-    fun updateChatProposal(proposal: AiWriteProposal) {
-        val (messageId, current) = _chat.value.pendingProposal ?: return
-        // Hand edits may only change the contents. Re-pointing a proposal at
-        // somebody else goes through changeChatProposalTarget, which rebuilds it.
-        if (proposal.rawInput != current.rawInput || proposal.targetPersonId != current.targetPersonId) return
-        updateMessage(messageId) { message ->
-            val existing = message.attachment as? ChatAttachment.Proposal
-            message.copy(attachment = ChatAttachment.Proposal(proposal, caveat = existing?.caveat))
-        }
-    }
-
-    fun discardChatProposal() {
-        val (messageId, _) = _chat.value.pendingProposal ?: return
-        chatJob?.cancel()
-        clearAttachment(messageId)
-        appendAssistant("Discarded. Nothing was saved.")
-        setPhase(ChatPhase.Idle)
-    }
-
-    fun applyChatProposal() {
-        val (messageId, proposal) = _chat.value.pendingProposal ?: return
-        if (_chat.value.phase.busy) return
         chatJob?.cancel()
         chatJob = viewModelScope.launch {
-            settings.markBackupNeeded()
-            refreshBackupState()
-            setPhase(ChatPhase.Applying)
+            setPhase(ChatPhase.Working("Reading your message…"))
             try {
-                val result = repository.applyAiProposal(proposal)
-                updateMessage(messageId) { message ->
-                    val existing = message.attachment as? ChatAttachment.Proposal
-                    message.copy(
-                        attachment = ChatAttachment.Proposal(
-                            proposal = proposal,
-                            savedPersonId = result.personId,
-                            caveat = existing?.caveat,
-                            savedInteractionId = result.auditInteractionId,
-                        ),
+                val outcome = AiRequestService.holdingProcess(app) {
+                    agent.run(text, history) { status -> setPhase(ChatPhase.Working(status)) }
+                }
+                val log = outcome.log
+                if (log.changes.isNotEmpty()) {
+                    refreshBackupState()
+                    scheduleAutoBackup()
+                }
+                val attachment = if (log.saved.isEmpty() && log.pending.isEmpty()) {
+                    null
+                } else {
+                    ChatAttachment.AgentResult(
+                        saved = log.saved.toList(),
+                        changes = log.changes.toList(),
+                        memory = log.memory.toList(),
+                        pending = log.pending.map { PendingItem(it) },
+                        people = log.people.toList(),
+                        calls = log.calls.toList(),
                     )
                 }
-                appendAssistant("Saved for ${proposal.targetName}.")
-                scheduleAutoBackup()
+                if (outcome.error == null) {
+                    appendAssistant(outcome.reply.orEmpty(), attachment, fromGateway = true)
+                } else {
+                    appendAssistant(outcome.error, failed = true, fromGateway = true)
+                    // Whatever landed before the failure is still saved, so it
+                    // still gets its card and its undo.
+                    if (attachment != null) appendAssistant("This was saved before it stopped.", attachment)
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                appendAssistant(
-                    error.message ?: "The reviewed changes could not be saved. Nothing was changed.",
-                    failed = true,
-                )
+                appendAssistant(error.message ?: "The assistant could not complete the request.", failed = true, fromGateway = true)
             } finally {
                 setPhase(ChatPhase.Idle)
             }
         }
     }
 
-    fun confirmSearchConsent() {
-        val request = pendingSearch ?: return
-        _searchConsentRequest.value = null
-        pendingSearch = null
-        gatewaySettings.setFullNetworkSearchConsent(true)
+    fun confirmAssistantConsent() {
+        gatewaySettings.setAssistantConsent(true)
         refreshGatewaySettingsState()
-        launchChat { runSearch(request.query, request.history) }
+        _consentRequested.value = false
+        sendChatMessage()
     }
 
-    fun dismissSearchConsent() {
-        _searchConsentRequest.value = null
-        pendingSearch = null
-        appendAssistant(
-            "Full-network search needs that one-time disclosure. Browsing and local matching on the People tab still work without it.",
-        )
+    fun dismissAssistantConsent() {
+        _consentRequested.value = false
+        showMessage("The assistant needs that permission. Browsing and local search on the People tab still work.")
+    }
+
+    /**
+     * Puts back everything one reply saved, all or nothing.
+     *
+     * Refuses when something was edited since, rather than overwriting the newer
+     * version; the card then says so and stops offering undo.
+     */
+    fun undoChatChanges(messageId: Long) {
+        val result = agentResult(messageId)?.takeIf { it.canUndo } ?: return
+        if (_chat.value.phase.busy) return
+        chatJob?.cancel()
+        chatJob = viewModelScope.launch {
+            setPhase(ChatPhase.Undoing)
+            settings.markBackupNeeded()
+            refreshBackupState()
+            try {
+                assistantStore.undo(result.changes, System.currentTimeMillis())
+                updateAgentResult(messageId) { it.copy(undone = true) }
+                appendAssistant("Undone. Everything that reply saved is back the way it was.")
+                scheduleAutoBackup()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (conflict: UndoConflictException) {
+                updateAgentResult(messageId) { it.copy(undoError = conflict.message) }
+            } catch (error: Exception) {
+                updateAgentResult(messageId) { it.copy(undoError = error.message ?: "Undo failed. Nothing was changed.") }
+            } finally {
+                setPhase(ChatPhase.Idle)
+            }
+        }
+    }
+
+    /** Carries out a delete or merge the user just confirmed on the card. */
+    fun confirmChatAction(messageId: Long, actionId: String) {
+        val item = agentResult(messageId)?.pending?.firstOrNull { it.action.id == actionId && it.state == ActionState.PENDING } ?: return
+        if (_chat.value.phase.busy) return
+        chatJob?.cancel()
+        chatJob = viewModelScope.launch {
+            setPhase(ChatPhase.Confirming)
+            settings.markBackupNeeded()
+            refreshBackupState()
+            try {
+                val outcome = when (val action = item.action) {
+                    is PendingAction.DeletePerson -> "Deleted ${assistantStore.deletePerson(action.personId)}."
+                    is PendingAction.DeleteNote -> assistantStore.deleteNote(action.noteId).let { "Deleted the note." }
+                    is PendingAction.DeleteRecord -> assistantStore.deleteRecord(action.ref).let { "Deleted." }
+                    is PendingAction.MergePeople -> assistantStore.mergePeople(action.keepId, action.mergeId, System.currentTimeMillis())
+                        .let { "Merged ${it.mergedName} into ${it.keptName}." }
+                }
+                setActionState(messageId, actionId, ActionState.DONE, outcome)
+                scheduleAutoBackup()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                setActionState(messageId, actionId, ActionState.FAILED, error.message ?: "That could not be done. Nothing was changed.")
+            } finally {
+                setPhase(ChatPhase.Idle)
+            }
+        }
+    }
+
+    fun keepChatAction(messageId: Long, actionId: String) {
+        setActionState(messageId, actionId, ActionState.KEPT, "Kept.")
     }
 
     fun startNewChat() {
         chatJob?.cancel()
-        pendingSearch = null
-        _searchConsentRequest.value = null
         _chat.value = ChatState()
     }
 
@@ -490,16 +432,14 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         chatJob?.cancel()
         setPhase(ChatPhase.Idle)
         refreshGatewaySettingsState()
-        appendAssistant("Access token removed. Browsing and local matching on the People tab still work.")
+        appendAssistant("Access token removed. Browsing and local search on the People tab still work.")
         showMessage("Access token removed")
     }
 
-    fun revokeAiSearchConsent() {
-        gatewaySettings.setFullNetworkSearchConsent(false)
-        pendingSearch = null
-        _searchConsentRequest.value = null
+    fun revokeAssistantConsent() {
+        gatewaySettings.setAssistantConsent(false)
         refreshGatewaySettingsState()
-        showMessage("Full-network AI search consent revoked")
+        showMessage("Assistant permission revoked")
     }
 
     fun saveBackupConfig(config: GitHubBackupConfig) {
@@ -565,6 +505,8 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
                 repository.replaceAll(restored.snapshot, restored.feedback)
                 settings.markBackedUp()
                 refreshBackupState()
+                // Undo records point at rows the restore just replaced.
+                startNewChat()
                 showMessage("Restored ${restored.snapshot.people.size} people from encrypted backup")
                 onRestored()
             } catch (e: Exception) {
@@ -578,168 +520,23 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private fun launchChat(block: suspend () -> Unit) {
-        chatJob?.cancel()
-        chatJob = viewModelScope.launch {
-            try {
-                AiRequestService.holdingProcess(app) { block() }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                appendAssistant(aiFailureMessage(error), failed = true, fromGateway = true)
-            } finally {
-                setPhase(ChatPhase.Idle)
-            }
-        }
-    }
+    private fun agentResult(messageId: Long): ChatAttachment.AgentResult? =
+        _chat.value.messages.firstOrNull { it.id == messageId }?.attachment as? ChatAttachment.AgentResult
 
-    /**
-     * Decides whether a new turn stores something or asks something, then runs it.
-     *
-     * The routing call is the same round trip that already named the target
-     * person, so a capture pays nothing for it. History is passed at the narrower
-     * capture scope because at this point the turn could still be either kind.
-     */
-    private suspend fun routeMessage(text: String, history: List<ChatMessage>) {
-        // A note that plainly names one saved person, and does not read as a
-        // question, is resolved on the phone and skips the routing round trip.
-        if (!ChatRouter.looksLikeQuestion(text) && !ChatRouter.looksLikeMove(text)) {
-            val known = PersonResolver.resolveFromNote(snapshot.value.people, text)
-            if (known != null) {
-                buildProposal(text, known.name, known, history)
-                return
-            }
+    private fun updateAgentResult(messageId: Long, transform: (ChatAttachment.AgentResult) -> ChatAttachment.AgentResult) =
+        updateMessage(messageId) { message ->
+            val result = message.attachment as? ChatAttachment.AgentResult ?: return@updateMessage message
+            message.copy(attachment = transform(result))
         }
-        setPhase(ChatPhase.Routing)
-        val resolution = gatewayClient.resolveTarget(
-            input = text,
-            history = ChatRouter.captureScopedTurns(history),
-            now = Instant.now(),
-            zoneId = ZoneId.systemDefault(),
-            locale = Locale.getDefault().toLanguageTag(),
-        )
-        if (resolution.intent == ChatIntent.SEARCH) {
-            runSearch(text, history)
-            return
-        }
-        if (resolution.intent == ChatIntent.MOVE) {
-            prepareMove(resolution.moveFrom, resolution.moveTo)
-            return
-        }
-        val candidates = PersonResolver.resolve(snapshot.value.people, resolution.targetName)
-        when {
-            candidates.exact != null -> buildProposal(text, resolution.targetName, candidates.exact, history)
-            candidates.suggestions.isNotEmpty() -> appendAssistant(
-                "Which " + "${resolution.targetName} do you mean?",
-                ChatAttachment.TargetChoice(TargetChoiceState(text, resolution.targetName, candidates.suggestions)),
-                fromGateway = true,
-            )
-            else -> buildProposal(text, resolution.targetName, null, history)
-        }
-    }
 
-    /**
-     * Offers a move the user asked for in the chat, without a second round trip.
-     *
-     * The gateway supplied two names and nothing else. Which note they mean is
-     * decided here, against records that never left the phone, and then put to
-     * the user as a card: a move rewrites who a stored record belongs to, which
-     * is not something to do on a name match alone.
-     */
-    private fun prepareMove(fromName: String, toName: String) {
-        when (val outcome = MovePlanner.plan(snapshot.value, fromName, toName)) {
-            is MoveOutcome.Problem -> appendAssistant(outcome.message, fromGateway = true)
-            is MoveOutcome.Ready -> appendAssistant(
-                moveIntroduction(outcome.plan),
-                ChatAttachment.Move(outcome.plan),
-                fromGateway = true,
+    private fun setActionState(messageId: Long, actionId: String, state: ActionState, outcome: String) =
+        updateAgentResult(messageId) { result ->
+            result.copy(
+                pending = result.pending.map { item ->
+                    if (item.action.id == actionId) item.copy(state = state, outcome = outcome) else item
+                },
             )
         }
-    }
-
-    private fun moveIntroduction(plan: MovePlan): String {
-        val destination = if (plan.createsPerson) {
-            "a new person called ${plan.destinationName}"
-        } else {
-            plan.destinationName
-        }
-        val note = if (plan.candidates.size == 1) {
-            "This is the note it would move."
-        } else {
-            "I picked ${plan.from.name}'s most recent note - choose another if it is the wrong one."
-        }
-        return "I can move a note from ${plan.from.name} to $destination. $note"
-    }
-
-    private suspend fun runSearch(query: String, history: List<ChatMessage>) {
-        if (!_gatewaySettingsState.value.fullNetworkSearchConsent) {
-            pendingSearch = PendingSearch(query, history)
-            _searchConsentRequest.value = query
-            return
-        }
-        setPhase(ChatPhase.Searching)
-        // Search already sends every active person in the same request, so
-        // replaying earlier turns here discloses nothing new.
-        val reply = gatewayClient.search(query, snapshot.value, ChatRouter.searchScopedTurns(history))
-        appendAssistant(reply.assistantMessage, ChatAttachment.Search(reply.results), fromGateway = true)
-    }
-
-    private suspend fun buildProposal(
-        input: String,
-        targetName: String,
-        person: PersonEntity?,
-        history: List<ChatMessage>,
-    ) {
-        setPhase(ChatPhase.Capturing)
-        val reply = gatewayClient.proposeChanges(
-            input = input,
-            targetName = person?.name ?: targetName,
-            snapshot = snapshot.value,
-            person = person,
-            now = Instant.now(),
-            zoneId = ZoneId.systemDefault(),
-            locale = Locale.getDefault().toLanguageTag(),
-            history = ChatRouter.captureScopedTurns(history),
-        )
-        appendAssistant(
-            reply.assistantMessage,
-            ChatAttachment.Proposal(reply.proposal, caveat = reply.caveat),
-            fromGateway = true,
-        )
-    }
-
-    /**
-     * Revises the open proposal from a correction instead of starting over.
-     *
-     * The superseded card loses its attachment so only one proposal is ever open,
-     * which keeps the apply action unambiguous.
-     */
-    private suspend fun refineProposal(
-        messageId: Long,
-        proposal: AiWriteProposal,
-        correction: String,
-        history: List<ChatMessage>,
-    ) {
-        setPhase(ChatPhase.Refining)
-        val person = proposal.targetPersonId?.let(snapshot.value::person)
-        val reply = gatewayClient.proposeChanges(
-            input = correction,
-            targetName = person?.name ?: proposal.targetName,
-            snapshot = snapshot.value,
-            person = person,
-            now = Instant.now(),
-            zoneId = ZoneId.systemDefault(),
-            locale = Locale.getDefault().toLanguageTag(),
-            history = ChatRouter.captureScopedTurns(history),
-            previousProposal = proposal,
-        )
-        clearAttachment(messageId)
-        appendAssistant(
-            reply.assistantMessage,
-            ChatAttachment.Proposal(reply.proposal, caveat = reply.caveat),
-            fromGateway = true,
-        )
-    }
 
     private fun appendUser(text: String) = append(ChatRole.USER, text, null, false)
 
@@ -775,21 +572,13 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         )
     }
 
-    private fun clearAttachment(messageId: Long) = updateMessage(messageId) { it.copy(attachment = null) }
-
     /** The turn that produced a response, so a report shows both halves. */
     private fun precedingUserMessage(messageId: Long): String =
         _chat.value.messages.lastOrNull { it.id < messageId && it.role == ChatRole.USER }?.text.orEmpty()
 
-    private fun messagesBefore(messageId: Long): List<ChatMessage> =
-        _chat.value.messages.takeWhile { it.id != messageId }
-
     private fun setPhase(phase: ChatPhase) {
         _chat.value = _chat.value.copy(phase = phase)
     }
-
-    /** A search held back until the user answers the full-network disclosure. */
-    private data class PendingSearch(val query: String, val history: List<ChatMessage>)
 
     private fun mutate(block: suspend () -> Unit) {
         viewModelScope.launch {
@@ -872,11 +661,6 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
 
     private fun refreshGatewaySettingsState() {
         _gatewaySettingsState.value = gatewaySettings.state
-    }
-
-    private fun aiFailureMessage(error: Throwable): String = when (error) {
-        is GatewayException -> error.message ?: "The assistant could not complete the request."
-        else -> error.message ?: "The assistant could not complete the request."
     }
 
     companion object {

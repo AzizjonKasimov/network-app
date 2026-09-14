@@ -1,6 +1,6 @@
 # Network App
 
-Network App is a private Android memory aid for a personal network. It records who people are, what they are trying to achieve, what they may be able to help with, and the context from dated conversations. Capture, correction, and search all happen in one conversational **Assistant** thread, and every suggestion shows the stored evidence and date behind it.
+Network App is a private Android memory aid for a personal network. It records who people are, what they are trying to achieve, what they may be able to help with, and the context from dated conversations. Recording, correcting, and asking all happen in one conversational **Assistant** thread, where an agent reads and updates the saved records through tools that run on the phone.
 
 ## Current milestone
 
@@ -12,16 +12,14 @@ The first native Android version includes:
 - mark a profile as the user's own profile for reciprocal matching;
 - record dated interactions, needs/goals, and capabilities/resources;
 - private on-device matching across profile fields and linked records;
-- a single chat thread that routes each message to capture or search, so there is no separate capture screen and search screen;
-- AI-powered natural-language capture and update proposals with editable review before saving;
-- follow-up corrections that revise the open proposal instead of restarting the capture;
-- moving a note, and every record it created, onto another person or a brand-new one when a capture lands on the wrong contact;
-- capture coverage that flags explicit facts kept only in the original interaction;
-- optional full-active-network AI search with evidence IDs, exact stored sources, and one-time consent;
+- a single chat thread where an agent answers any question about the network and records what the user tells it, across several people in one message;
+- changes the assistant saves land immediately and can be undone together from its reply;
+- deletes and merges the assistant asks for wait on a confirmation card;
+- moving a note, and every record it created, onto another person or a brand-new one when it lands on the wrong contact, by asking or from the person screen;
+- turning a record into the right kind - a need that is really a capability, a position that is really education - without retyping it;
 - on-device-first voice input in the chat composer;
 - labelling a wrong assistant answer in the thread, with the reports carried in the encrypted backup for later diagnosis;
 - adaptive connected-N launcher artwork, including round and monochrome variants;
-- evidence and dates on every search result;
 - Room persistence with cascading deletion;
 - client-side encrypted GitHub backup and destructive restore confirmation;
 - persistent backup-needed, last-attempt, last-success, and failure status;
@@ -31,39 +29,37 @@ The first native Android version includes:
 
 The current signed release is [`v0.13.0`](https://github.com/AzizjonKasimov/network-app-releases/releases/tag/v0.13.0) (version code `15`). Its GitHub asset and updater manifest have been verified against the package version, byte size, SHA-256 digest, and pinned signing certificate.
 
-Manual capture and local matching remain fully available without the gateway or network access. The assistant never writes directly: create/update requests become editable proposals, and Room is changed only after explicit confirmation.
+Manual editing and local matching remain fully available without the gateway or network access. What the assistant saves is listed under its reply with one **Undo**, and deleting or merging always waits for a tap.
 
-## AI gateway
+## AI gateway and the assistant
 
 AI features are optional and route through a **self-hosted gateway** rather than a public AI vendor. The gateway address is compiled into the build; the access token is not. The gateway picks the model, so it can change without an app release. Configure it on the phone:
 
 1. Obtain an access token for the gateway, issued for this device.
 2. Open **Settings → AI gateway**, paste the token, and tap **Save**.
-3. On **Assistant**, type or dictate a message. A note about one person becomes a capture; a question about the network becomes a search. The assistant decides which, in the same round trip that identifies the person, so a capture costs no extra latency for the routing.
-4. Review the proposal card: the target, every field change, record edit, lifecycle change, date, and any facts labeled **Kept only in the original interaction**. Uncheck or edit anything incorrect, then tap **Apply**.
-5. To correct a proposal before saving, reply in the composer (“that was last Tuesday”, “drop the second need”). The assistant revises the open proposal rather than starting a new capture, and the original note stays verbatim. **Discard** closes it without writing anything.
+3. On **Assistant**, type or dictate a message. The first one asks, once, for permission for the assistant to read your network.
 
-The original applied text is stored verbatim as an `AI-reviewed capture` interaction. Before returning a proposal, the assistant is instructed to account for each explicit fact as a structured change or an interaction-only fact; the app validates counts, lengths, duplicate profile fields, and duplicate record edits before showing the review. New extracted needs and capabilities retain a provenance link to the source interaction. The assistant cannot archive or delete people, delete records, change the self marker, or modify more than one person in one request.
+The assistant is an agent. Claude plans on the gateway, and every lookup and change it makes is a tool call the gateway hands back to the phone, where it runs against Room and returns only what that call asked for. The database never leaves the phone, and no tool ever returns a contact value. One message can take several steps - finding the person, reading their records, saving a note and the records it supports - and the thread shows which step is running.
 
-Positions are their own records rather than a single organization and role on the profile, so someone who is a CEO at one company and a CTO at another keeps both. The assistant proposes one entry per position, each editable and individually selectable before saving.
+It can:
 
-A position is work only: a job, a business someone runs or founded, or freelance, contract, or advisory work. Study - a degree, a language school, a course - is listed under **Education** instead, on the proposal card and on the person alike, and an entry under the wrong heading can be switched before saving. Volunteering, memberships, communities, clubs, and events someone took part in are neither, however formal they sound.
+- answer questions about the network: who could help with something, what was last discussed with someone, who works where, who has not come up in a while;
+- record what you tell it on every person a message concerns, keeping your words as a note and the facts it states as positions, education, needs, capabilities, or background records linked to that note;
+- update, close, or re-date records, turn a record into the right kind, move a note to the person it belongs to, create people, change profile fields, and archive or restore someone.
 
-Anything explicitly stated that is not a position, education, a need, or a capability becomes a **Background** record: a product's user count, a notable event someone took part in, a club someone belongs to, a piece of history. The assistant chooses in that order, so **Kept only in the original interaction** is now reserved for facts that cannot be attributed to this person at all. Background records are dated, editable, searchable, and citable as evidence in their own right.
+Everything it saves lands immediately and is listed under its reply with one **Undo** for the whole reply. Undo refuses rather than overwrite anything edited since, including a person the reply created who has since gained notes or records of their own.
 
-A capture sometimes lands on the wrong person, usually somebody mentioned beside the person actually being described. **Move** re-files it: open the person holding the note, find it under **Interactions**, and tap **Move**. One field both filters the people already saved and, when nothing matches, offers to create the person the note really belongs to. The note and every position, education entry, need, capability, and background record it created travel together, because each of those stores the id of the interaction that produced it; anything the person gained some other way stays put. Profile fields the capture changed stay behind and need checking by hand, since an overwritten column keeps no trace of where its value came from. The same action sits on the proposal card immediately after a capture is applied, which is when a wrong target is usually noticed.
+Deleting a person, a note, or a record, and merging two entries for the same person, never happen on the assistant's say-so. They appear on a card under the reply and run only when you tap **Delete** or **Merge**. Those cannot be undone afterwards.
 
-You can also just ask: "move the note about Ana to Ben". The assistant routes that as a move and names the two people, and nothing else about it reaches the gateway — which note you mean, what it created, and how many records travel with it are all worked out on the phone from records that never leave it. The reply is a card showing the note it picked, the other recent notes from that person in case it picked wrong, and what would move; nothing is written until you confirm. A destination nobody matches becomes a new person on confirmation, the same as in the dialog.
+Positions are their own records rather than a single organization and role on the profile, so someone who is a CEO at one company and a CTO at another keeps both.
 
-The assistant still never performs the move on its own. A move rewrites who a stored record belongs to, which is the one cross-person write the single-person boundary exists to prevent, so it stays a choice you make on a card rather than something a sentence can trigger.
+A position is work only: a job, a business someone runs or founded, or freelance, contract, or advisory work. Study - a degree, a language school, a course - is **Education**. Volunteering, memberships, communities, clubs, and events someone took part in are neither, however formal they sound: they become **Background** records, along with anything else stated about a person that is not a position, education, a need, or a capability. Background records are dated, editable, and searchable in their own right.
 
-A refusal and an explanation are kept apart. The assistant refuses only what it cannot do safely - more than one person, a deletion, an unidentifiable target - and that discards the proposal. Anything it merely handled awkwardly is reported as a **How this was handled** note on the card, and the proposal stays complete and applicable.
+A note sometimes lands on the wrong person, usually somebody mentioned beside the person actually being described. Ask the assistant to move it, or open the person holding the note, find it under **Interactions**, and tap **Move**. One field there both filters the people already saved and, when nothing matches, offers to create the person the note really belongs to. The note and every record that cites it travel together; anything the person gained some other way stays put. Profile fields stay behind and need checking by hand, since an overwritten column keeps no trace of where its value came from.
 
-When a message routes to search and full-network consent has not been given yet, the app asks first. The disclosure explains that the request sends all active searchable network text: names, self marker, organizations, roles, locations, relationship context, tags, profile notes, interactions, active needs, active capabilities, IDs, and dates. Contact values, archived people, closed needs, inactive capabilities, backup credentials, and the access token are excluded. Consent can be revoked in Settings, and declining leaves the **People** tab's local matching fully usable.
+Replayed history is capped at six turns and 3,000 characters. A reply is replayed together with what it changed, record addresses included, so a follow-up like "that should be a capability" reaches the record it means.
 
-Because one thread mixes both request kinds, replayed history is scoped to the narrower of the two. A capture request never replays a previous search answer, which is built from the whole network; only the user's own turns and capture replies travel with it. Replayed history is capped at six turns and 2,000 characters so a long thread cannot crowd out the current message.
-
-If the active search corpus exceeds 1 MiB, the app refuses to truncate or send it and keeps showing local results. Missing configuration, invalid model output, unknown IDs, timeouts, quota errors, and offline failures remain visible and do not silently save or invent data.
+Missing configuration, timeouts, quota errors, and offline failures are shown in the thread. When a turn fails partway, whatever it saved before failing is still listed with its **Undo**.
 
 ## Voice input
 
@@ -77,9 +73,9 @@ The assistant is wrong sometimes: it attaches a note to the wrong person, stores
 
 1. Tap **Report a problem** under the answer.
 2. Pick what went wrong. The labels are fixed - wrong person, missed something, invented something, wrong record type, wrong date, bad search results, misunderstood the request, something else - so reports can be counted and grouped later. Add a note if the label does not say enough.
-3. The report is saved with a copy of the message, the answer, and the proposal or search results behind it.
+3. The report is saved with a copy of the message, the answer, what the reply saved or queued, and the tool calls it made, in order.
 
-A report copies the response into itself rather than pointing at it, because the chat thread is memory-only: the proposal card disappears the moment it is applied or a new chat starts. That makes each report readable long after the conversation is gone.
+A report copies the response into itself rather than pointing at it, because the chat thread is memory-only: the card disappears when a new chat starts. That makes each report readable long after the conversation is gone, and the tool calls show how a wrong answer came about - a note filed on the wrong person usually starts with the lookup that matched the wrong name.
 
 Reports ride in the ordinary encrypted backup. There is no separate export step and nothing to attach to a message: back up, and they are on the machine where the fault gets fixed. Filing or deleting a report marks a backup as needed, exactly like editing a person, so automatic backup picks them up on its own.
 
@@ -93,13 +89,13 @@ pwsh ./scripts/read-feedback.ps1
 
 It fetches the encrypted backup from the private data repository, asks for the backup passphrase, and writes only the reports to `assistant-feedback.json` in the repository root, which is gitignored. The rest of the backup is decrypted in memory to reach them and never touches disk. The passphrase is typed at the prompt and is never written to a file, passed as an argument, echoed, or kept in shell history. Pass `-EnvelopeFile <path>` to decrypt a backup file you already have instead of fetching one.
 
-The loop is: label bad answers as they happen, back up, fix the faults, delete the reports that are done, back up again. Contact values never reach a report at all: a proposal that changed a contact field records that it happened, without the value.
+The loop is: label bad answers as they happen, back up, fix the faults, delete the reports that are done, back up again. Contact values never reach a report at all: a tool call that set a contact value is recorded without the value.
 
 ## Privacy and backup
 
 Network data is sensitive third-party personal information. Android automatic cloud backup is disabled, and real records must never enter source control, tests, screenshots, logs, development prompts, or release artifacts.
 
-Gateway requests are an explicit exception chosen by the user. Natural-language capture sends the current message and, after target selection, only that person's non-contact profile and linked records, plus the bounded capture-scoped history described above. AI search sends the full active searchable corpus described above after consent. See [PRIVACY.md](PRIVACY.md) for the exact boundary. A token stored by a mobile app can be recovered from a rooted or otherwise compromised device, so issue one token per device and revoke it on the gateway if that device is lost.
+Gateway requests are an explicit exception chosen by the user. Each message sends the message, the bounded history described above, and then whatever records the assistant's tool calls read, never contact values. See [PRIVACY.md](PRIVACY.md) for the exact boundary. A token stored by a mobile app can be recovered from a rooted or otherwise compromised device, so issue one token per device and revoke it on the gateway if that device is lost.
 
 Speech input is separate from the gateway. On-device recognition keeps audio with the device recognition service. If the user accepts the disclosed fallback, Android's configured speech provider may transmit audio under that provider's terms; the fallback consent lasts only until the Network App process restarts.
 
@@ -133,7 +129,7 @@ For an explicitly authorized live gateway check, save the access token once on t
 .\scripts\test-gateway-live.ps1
 ```
 
-The script never handles the token. It is read at runtime from the app's own encrypted preferences, so it is never passed through `.env`, a file staged on the device, Gradle arguments, command text, or test reports. The run exercises routing, capture, refinement, and search against the production `GatewayClient` with synthetic records only.
+The script never handles the token. It is read at runtime from the app's own encrypted preferences, so it is never passed through `.env`, a file staged on the device, Gradle arguments, command text, or test reports. The run drives real agent turns against the production gateway - a capture mixing work, study, and volunteering, a two-person update, a question, a delete request, and an undo - with synthetic records in an in-memory database.
 
 The script installs the app and instrumentation APKs and then drives `am instrument` directly, rather than using `connectedDebugAndroidTest`. That Gradle task uninstalls the app when it finishes, which erases the saved token and forces it to be entered again before every run. Ordinary offline test runs skip this opt-in provider test.
 
@@ -172,11 +168,11 @@ The script verifies the active GitHub account and repository visibility, prevent
 - Room schema version 5 adds a standalone `ai_feedback` table for reported assistant answers, with no foreign keys so a report outlives the records it describes. Schema version 6 drops its exported marker, which only ever tracked a share-sheet export that no longer exists.
 - Repository boundary and state-flow presentation with simple application-owned dependency wiring.
 - Local deterministic matching in `NetworkMatcher`, reachable without AI from the **People** tab.
-- Re-filing a misfiled capture in `NetworkDao.moveInteraction`, a single transaction that re-points the interaction and every record carrying its id, creating the destination person when the note belongs to somebody not yet saved. `MovePlanner` turns a chat move request into the candidate notes and destination for that transaction without asking the gateway anything beyond the two names.
-- Chat routing and privacy-scoped history in `ChatRouter`; conversation state in `ChatModels`.
-- Bounded gateway REST client with validated structured capture coverage and evidence-ID search results.
+- Re-filing a misfiled note in `NetworkDao.moveInteraction`, a single transaction that re-points the interaction and every record carrying its id, creating the destination person when the note belongs to somebody not yet saved. The assistant's `move_note` tool uses the same transaction.
+- The agent in `ai`: `AssistantAgent` runs a turn, `AgentClient` speaks the gateway's `/v1/agent/turns` protocol, `AssistantTools` executes each tool call against Room, and `AssistantPrompt` holds the instructions and replayed history. Conversation state is in `ChatModels`.
+- `AssistantStore` writes through a `ChangeRecorder` that keeps every row's before and after image. That is what lets one reply be undone as a whole, and lets undo detect anything edited since instead of overwriting it. Deletes and merges are separate store methods that only a confirmation card calls.
 - Lifecycle-managed Android speech recognition with on-device preference and a disclosed session-only fallback.
 - Encrypted backup codec separated from the GitHub transport.
 - Feedback capture and response flattening in `feedback`, kept free of Android types so both are unit-tested.
-- `BackupPayload` carries reported answers beside the snapshot rather than inside it, so diagnostic rows never reach the screens or the AI search corpus. Backup schema 5 adds them; backups written earlier restore with none.
-- No backend, account, analytics, telemetry, contact scraping, automatic address-book import, autonomous outreach, or AI deletion.
+- `BackupPayload` carries reported answers beside the snapshot rather than inside it, so diagnostic rows never reach the screens or the assistant's tools. Backup schema 5 adds them; backups written earlier restore with none. Schema 6 adds the `assistant` note origin, so an older app reports a newer backup as unsupported rather than damaged.
+- No backend, account, analytics, telemetry, contact scraping, automatic address-book import, autonomous outreach, or deletion without confirmation.

@@ -35,3 +35,11 @@ data class MoveResult(
     val summary: String
         get() = if (records == 0) "the note" else "the note and $records linked record" + if (records == 1) "" else "s"
 }
+
+/** What folding one person's entry into another's moved. */
+data class MergeResult(
+    val keptName: String,
+    val mergedName: String,
+    /** Notes and records that changed owner. */
+    val movedRows: Int,
+)

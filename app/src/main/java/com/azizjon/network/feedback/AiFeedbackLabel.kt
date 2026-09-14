@@ -19,7 +19,7 @@ enum class AiFeedbackLabel(val id: String, val title: String, val description: S
     MISSED_INFORMATION(
         "missed_information",
         "Missed something",
-        "Something clearly stated in the message was left out of the proposal or the answer.",
+        "Something clearly stated in the message was not saved, or was left out of the answer.",
     ),
     INVENTED_INFORMATION(
         "invented_information",

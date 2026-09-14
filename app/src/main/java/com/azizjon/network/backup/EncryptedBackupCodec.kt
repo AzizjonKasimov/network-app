@@ -38,8 +38,13 @@ object EncryptedBackupCodec {
     private const val FORMAT = "network-app-encrypted-backup"
     private const val VERSION = 1
 
-    /** Shape of the decrypted payload. Bumped whenever a list is added. */
-    internal const val SCHEMA_VERSION = 5
+    /**
+     * Shape of the decrypted payload. Bumped whenever a list is added, or a value
+     * appears that an older version would reject: 6 adds the assistant note
+     * origin, so an older app says the backup is too new instead of calling it
+     * damaged.
+     */
+    internal const val SCHEMA_VERSION = 6
 
     /** A sane ceiling so a damaged backup cannot flood the table on restore. */
     private const val MAX_FEEDBACK_ROWS = 5_000
@@ -314,7 +319,7 @@ object EncryptedBackupCodec {
         if (interactionIds.size != snapshot.interactions.size ||
             snapshot.interactions.any {
                 it.id <= 0 || it.personId !in personIds || it.note.isBlank() ||
-                    it.origin !in setOf(InteractionEntity.ORIGIN_MANUAL, InteractionEntity.ORIGIN_AI_REVIEWED)
+                    it.origin !in InteractionEntity.ORIGINS
             } ||
             snapshot.needs.any {
                 it.id <= 0 || it.personId !in personIds || it.text.isBlank() ||

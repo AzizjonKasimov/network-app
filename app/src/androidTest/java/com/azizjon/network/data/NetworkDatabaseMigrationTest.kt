@@ -177,43 +177,6 @@ class NetworkDatabaseMigrationTest {
         }
     }
 
-    @Test
-    fun confirmedProposalIsAtomicAndLinksDerivedRecordsToAuditInteraction() = runBlocking {
-        val database = Room.inMemoryDatabaseBuilder(context, NetworkDatabase::class.java).build()
-        try {
-            val dao = database.networkDao()
-            val personId = dao.savePerson(PersonEntity(name = "Synthetic Person", createdAt = 1, updatedAt = 1))
-            val proposal = AiWriteProposal(
-                rawInput = "Synthetic Person needs a designer and can mentor Kotlin.",
-                targetPersonId = personId,
-                targetName = "Synthetic Person",
-                occurredAt = 2,
-                newNeeds = listOf(AiRecordAdd("Find a designer")),
-                newCapabilities = listOf(AiRecordAdd("Kotlin mentoring")),
-            )
-
-            val result = dao.applyAiProposal(proposal, now = 3)
-
-            assertEquals(InteractionEntity.ORIGIN_AI_REVIEWED, dao.allInteractions().single().origin)
-            assertEquals(result.auditInteractionId, dao.allNeeds().single().sourceInteractionId)
-            assertEquals(result.auditInteractionId, dao.allCapabilities().single().sourceInteractionId)
-
-            val interactionsBefore = dao.allInteractions()
-            val invalid = proposal.copy(
-                rawInput = "Invalid synthetic edit",
-                newNeeds = emptyList(),
-                newCapabilities = emptyList(),
-                interactionEdits = listOf(AiInteractionEdit(999, "Unknown", 2)),
-            )
-            assertThrows(IllegalArgumentException::class.java) {
-                runBlocking { dao.applyAiProposal(invalid, now = 4) }
-            }
-            assertEquals(interactionsBefore, dao.allInteractions())
-        } finally {
-            database.close()
-        }
-    }
-
     /**
      * Reports collected on a phone running schema 5 must survive the column
      * being dropped, or upgrading silently throws away the very thing the

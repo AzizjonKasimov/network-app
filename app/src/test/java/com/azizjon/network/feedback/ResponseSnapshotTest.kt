@@ -1,86 +1,56 @@
 package com.azizjon.network.feedback
 
+import com.azizjon.network.ai.ActionState
 import com.azizjon.network.ai.ChatAttachment
 import com.azizjon.network.ai.ChatMessage
 import com.azizjon.network.ai.ChatRole
-import com.azizjon.network.data.AiAffiliationAdd
+import com.azizjon.network.ai.PendingAction
+import com.azizjon.network.ai.PendingItem
 import com.azizjon.network.data.AiFeedbackEntity
-import com.azizjon.network.data.AiRecordAdd
-import com.azizjon.network.data.AiWriteProposal
-import com.azizjon.network.data.ProfileField
-import com.azizjon.network.data.ProfilePatch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.time.ZoneId
 
 class ResponseSnapshotTest {
-    private val zone: ZoneId = ZoneId.of("UTC")
-
     @Test
-    fun aProposalIsFlattenedIntoSomethingReadableWithoutTheApp() {
+    fun anAgentReplyIsFlattenedIntoSomethingReadableWithoutTheApp() {
         val message = assistantMessage(
-            text = "I prepared two changes.",
-            attachment = ChatAttachment.Proposal(
-                proposal = proposal(
-                    newNeeds = listOf(AiRecordAdd("Looking for a co-founder")),
-                    newCapabilities = listOf(AiRecordAdd("Runs a hardware lab", selected = false)),
-                ),
-                caveat = "Two roles were recorded separately.",
+            text = "Saved the new job for Synthetic Person.",
+            attachment = result(
+                saved = listOf("Saved a note on Synthetic Person", "Added a position for Synthetic Person: CTO at Northwind Labs"),
+                calls = listOf("find_people {\"query\":\"Synthetic\"}", "add_note {\"person_id\":7}"),
             ),
         )
 
-        val detail = ResponseSnapshot.detailOf(message, zone)
+        val detail = ResponseSnapshot.detailOf(message)
 
-        assertEquals(AiFeedbackEntity.Stage.PROPOSAL, ResponseSnapshot.stageOf(message))
-        assertTrue(detail.contains("Proposed changes for: Synthetic Person"))
-        assertTrue(detail.contains("Interaction date: 2026-09-09"))
-        assertTrue(detail.contains("Looking for a co-founder"))
-        assertTrue(detail.contains("Two roles were recorded separately."))
-        // What the user refused is part of the fault, so it has to be visible.
-        assertTrue(detail.contains("Runs a hardware lab [unticked]"))
-        assertTrue(detail.contains("Original message stored verbatim"))
+        assertEquals(AiFeedbackEntity.Stage.AGENT, ResponseSnapshot.stageOf(message))
+        assertTrue(detail.contains("Saved:"))
+        assertTrue(detail.contains("CTO at Northwind Labs"))
+        // How the reply got there is the part a saved line cannot show.
+        assertTrue(detail.substringAfter("Tool calls, in order:").contains("find_people"))
+        assertFalse(detail.contains("Undone"))
     }
 
     @Test
-    fun studyIsReportedUnderEducationRatherThanPositions() {
+    fun undoAndAnsweredConfirmationsAreRecorded() {
         val message = assistantMessage(
-            text = "I prepared two changes.",
-            attachment = ChatAttachment.Proposal(
-                proposal = proposal(
-                    newAffiliations = listOf(
-                        AiAffiliationAdd("Brightline Studio", "Product designer"),
-                        AiAffiliationAdd("Cedar Hill Language Institute", "Spanish", current = false, education = true),
-                    ),
+            text = "Deleting is waiting for you.",
+            attachment = result(
+                saved = listOf("Archived Synthetic Person"),
+                pending = listOf(
+                    PendingItem(PendingAction.DeleteNote("action_1", 3, "Synthetic Person", "2026-09-01", "Met at the fair"), ActionState.KEPT),
+                    PendingItem(PendingAction.MergePeople("action_2", 1, "Ana Lee", 2, "Ana L."), ActionState.FAILED, "That person no longer exists"),
                 ),
-            ),
+            ).copy(undone = true),
         )
 
-        val detail = ResponseSnapshot.detailOf(message, zone)
+        val detail = ResponseSnapshot.detailOf(message)
 
-        // The report has to name the heading the user saw each entry under.
-        val positions = detail.substringAfter("New positions:").substringBefore("New education:")
-        assertTrue(positions.contains("Product designer at Brightline Studio [current]"))
-        assertFalse(positions.contains("Cedar Hill"))
-        assertTrue(detail.substringAfter("New education:").contains("Spanish at Cedar Hill Language Institute [past]"))
-    }
-
-    @Test
-    fun aContactValueNeverReachesAReport() {
-        val message = assistantMessage(
-            text = "I prepared a change.",
-            attachment = ChatAttachment.Proposal(
-                proposal = proposal(
-                    patches = listOf(ProfilePatch(ProfileField.CONTACT, "someone@example.test")),
-                ),
-            ),
-        )
-
-        val detail = ResponseSnapshot.detailOf(message, zone)
-
-        assertFalse(detail.contains("someone@example.test"))
-        assertTrue(detail.contains(ResponseSnapshot.CONTACT_PLACEHOLDER))
+        assertTrue(detail.contains("Undone by the user afterwards."))
+        assertTrue(detail.contains("Met at the fair” [declined]"))
+        assertTrue(detail.contains("[failed: That person no longer exists]"))
     }
 
     @Test
@@ -88,29 +58,41 @@ class ResponseSnapshotTest {
         val message = assistantMessage(text = "The gateway timed out.", attachment = null, failed = true)
 
         assertEquals(AiFeedbackEntity.Stage.ERROR, ResponseSnapshot.stageOf(message))
-        assertEquals("", ResponseSnapshot.detailOf(message, zone))
+        assertEquals("", ResponseSnapshot.detailOf(message))
     }
 
     @Test
     fun theStoredRowCarriesBothHalvesOfTheExchange() {
-        val message = assistantMessage(text = "I prepared a change.", attachment = null)
+        val message = assistantMessage(text = "Ana works at Northwind Labs.", attachment = null)
 
         val feedback = buildFeedback(
             message = message,
-            userMessage = "Met a synthetic person today",
+            userMessage = "Where does Ana work?",
             label = AiFeedbackLabel.WRONG_RECORD_TYPE,
             note = "That was a job, not a need",
-            appVersion = "0.9.0 (10)",
+            appVersion = "0.14.0 (16)",
             now = 1_788_912_000_000L,
-            zoneId = zone,
         )
 
         assertEquals(AiFeedbackLabel.WRONG_RECORD_TYPE.id, feedback.label)
-        assertEquals("Met a synthetic person today", feedback.userMessage)
-        assertEquals("I prepared a change.", feedback.assistantMessage)
+        assertEquals("Where does Ana work?", feedback.userMessage)
+        assertEquals("Ana works at Northwind Labs.", feedback.assistantMessage)
         assertEquals(AiFeedbackEntity.Stage.MESSAGE, feedback.stage)
-        assertEquals("0.9.0 (10)", feedback.appVersion)
+        assertEquals("0.14.0 (16)", feedback.appVersion)
     }
+
+    private fun result(
+        saved: List<String> = emptyList(),
+        pending: List<PendingItem> = emptyList(),
+        calls: List<String> = emptyList(),
+    ) = ChatAttachment.AgentResult(
+        saved = saved,
+        changes = emptyList(),
+        memory = emptyList(),
+        pending = pending,
+        people = listOf(7),
+        calls = calls,
+    )
 
     private fun assistantMessage(
         text: String,
@@ -124,21 +106,5 @@ class ResponseSnapshotTest {
         failed = failed,
         sentAt = 1_788_912_000_000L,
         fromGateway = true,
-    )
-
-    private fun proposal(
-        patches: List<ProfilePatch> = emptyList(),
-        newNeeds: List<AiRecordAdd> = emptyList(),
-        newCapabilities: List<AiRecordAdd> = emptyList(),
-        newAffiliations: List<AiAffiliationAdd> = emptyList(),
-    ) = AiWriteProposal(
-        rawInput = "Met a synthetic person today",
-        targetPersonId = 7,
-        targetName = "Synthetic Person",
-        occurredAt = 1_788_912_000_000L,
-        profilePatches = patches,
-        newNeeds = newNeeds,
-        newCapabilities = newCapabilities,
-        newAffiliations = newAffiliations,
     )
 }

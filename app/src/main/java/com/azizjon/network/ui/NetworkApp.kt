@@ -34,7 +34,7 @@ fun NetworkApp(viewModel: NetworkViewModel) {
     val backupState by viewModel.backupState.collectAsStateWithLifecycle()
     val chat by viewModel.chat.collectAsStateWithLifecycle()
     val composerDraft by viewModel.composerDraft.collectAsStateWithLifecycle()
-    val searchConsentRequest by viewModel.searchConsentRequest.collectAsStateWithLifecycle()
+    val consentRequested by viewModel.consentRequested.collectAsStateWithLifecycle()
     val gatewaySettingsState by viewModel.gatewaySettingsState.collectAsStateWithLifecycle()
     val speechFallbackAllowed by viewModel.speechFallbackAllowed.collectAsStateWithLifecycle()
     val feedbackState by viewModel.feedbackState.collectAsStateWithLifecycle()
@@ -104,27 +104,19 @@ fun NetworkApp(viewModel: NetworkViewModel) {
                         chat = chat,
                         snapshot = snapshot,
                         draft = composerDraft,
-                        searchConsentRequest = searchConsentRequest,
+                        consentRequested = consentRequested,
                         feedbackTarget = feedbackTarget,
                         speechFallbackAllowed = speechFallbackAllowed,
                         onDraftChange = viewModel::updateComposerDraft,
                         onSend = viewModel::sendChatMessage,
                         onAllowSpeechFallback = viewModel::allowSpeechFallbackForSession,
                         onOpenPerson = { selectedPersonId = it },
-                        onChooseTarget = viewModel::chooseChatTarget,
-                        onChangeProposalTarget = viewModel::changeChatProposalTarget,
-                        onUpdateProposal = viewModel::updateChatProposal,
-                        onDiscardProposal = viewModel::discardChatProposal,
-                        onApplyProposal = viewModel::applyChatProposal,
-                        onConfirmSearchConsent = viewModel::confirmSearchConsent,
-                        onDismissSearchConsent = viewModel::dismissSearchConsent,
+                        onUndo = viewModel::undoChatChanges,
+                        onConfirmAction = viewModel::confirmChatAction,
+                        onKeepAction = viewModel::keepChatAction,
+                        onConfirmConsent = viewModel::confirmAssistantConsent,
+                        onDismissConsent = viewModel::dismissAssistantConsent,
                         onReportMessage = viewModel::startFeedback,
-                        onMoveInteraction = { interactionId, destination ->
-                            viewModel.moveInteraction(interactionId, destination)
-                        },
-                        onSelectChatMoveNote = viewModel::selectChatMoveNote,
-                        onConfirmChatMove = viewModel::confirmChatMove,
-                        onCancelChatMove = viewModel::cancelChatMove,
                         onDismissFeedback = viewModel::dismissFeedback,
                         onSubmitFeedback = viewModel::submitFeedback,
                         onNewChat = viewModel::startNewChat,
@@ -141,7 +133,7 @@ fun NetworkApp(viewModel: NetworkViewModel) {
                         feedbackState = feedbackState,
                         onSaveAccessToken = viewModel::saveAccessToken,
                         onClearAccessToken = viewModel::clearAccessToken,
-                        onRevokeAiSearchConsent = viewModel::revokeAiSearchConsent,
+                        onRevokeAssistantConsent = viewModel::revokeAssistantConsent,
                         onSaveBackupConfig = viewModel::saveBackupConfig,
                         onBackupNow = viewModel::backupNow,
                         onVerifyBackup = viewModel::verifyBackup,

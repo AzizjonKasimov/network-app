@@ -6,25 +6,29 @@ Network App stores private information about people, conversations, needs, and c
 
 Manual person and record editing, local evidence-backed matching, browsing, archive/delete controls, and encrypted backup status work without the gateway. Stored records leave the phone only through a user-requested AI operation or the separately configured encrypted GitHub backup.
 
-## AI capture and updates
+## The assistant
 
-Capture, correction, and search share one chat thread on the **Assistant** tab. When the user sends a message, the app sends that message, the bounded conversation history described below, current time, time zone, and locale to decide whether the message is a capture or a search and, for a capture, to identify one target person. No stored network records are included in that first request. When the message plainly names one saved person and does not read as a question, the phone resolves the target offline and skips this request entirely.
+Recording, correcting, and asking share one chat thread on the **Assistant** tab. The first message asks, once, for permission for the assistant to read the network; the permission is stored locally and can be revoked in Settings, and declining leaves manual editing and the **People** tab's local matching fully usable.
 
-After the target is resolved or selected, the proposal request sends the message and only that person's name, positions (organization, role, whether current, and whether study), background records, location, relationship context, tags, profile notes, interactions, needs, capabilities, record IDs, statuses, and dates. The existing contact value, other people, archived state, self marker, backup secrets, and access token are not placed in the prompt. A newly typed contact value is part of the message and therefore is sent if the user explicitly includes it.
+Each message starts an agent turn on the gateway. The request carries the message, the bounded conversation history described below, the current time, time zone, and locale, the assistant's instructions, and descriptions of the tools it may use. No stored records are included in that request.
 
-The gateway returns a structured proposal. The app validates its schema, lengths, counts, duplicate changes, and record IDs and shows an editable proposal card in the thread. The proposal separately lists explicit facts kept only in the original verbatim interaction rather than mapped into structured fields or records. Nothing is written before confirmation. Applying the proposal stores the original message verbatim as an AI-reviewed interaction and applies the selected changes in one Room transaction.
+The assistant then works through tool calls. The gateway hands each call back to the phone, the phone runs it against Room, and the result of that one call is sent back. Depending on what the assistant looks up, a result can contain names, the self marker, archived state, positions (organization, role, whether current, and whether study), education, background records, locations, relationship context, tags, profile notes, notes and their dates, needs, capabilities, record IDs, statuses, and dates. A result never contains a contact value: a person's profile says only whether one is saved. A contact value the user types into a message is part of that message and is sent, and the assistant may save it.
 
-## Follow-up corrections
+Tool results reach the gateway operator and, through them, Anthropic, in the same way as the message itself. The database is never uploaded as a whole, the gateway does not keep tool results after the turn, and backup secrets and the access token are never part of any tool result.
 
-While a proposal is open, the next message refines it instead of starting a new capture. That request sends the same single-person context plus the current proposal, with items the user has already unchecked omitted so they are not proposed again. A refinement stays on one person, is validated identically, and still requires confirmation. Discarding a proposal writes nothing.
+## Changes the assistant makes
+
+Adding people, notes, and records, changing profile fields and records, converting a record to another kind, archiving, and moving a note are written to Room as soon as the assistant makes them, each tool call in its own transaction. Every such write is listed under the reply that made it, and **Undo** puts all of them back together. Undo refuses rather than overwrite anything edited after the reply, and refuses to remove a person or note the reply created once other records depend on it. The record of what to undo lives only in memory with the thread.
+
+Deleting a person, note, or record and merging two people are never written by the assistant. They are shown on a card under the reply and run only when the user confirms them there. They cannot be undone afterwards; restoring an earlier encrypted backup is the only way back.
+
+Notes the assistant saves are marked as saved by the assistant. Missing configuration, rejected requests, timeouts, quota limits, and offline failures stop the turn and are shown in the thread; anything already saved before the failure stays listed with its undo.
 
 ## Conversation history
 
-One thread mixes two different disclosure scopes: a capture sends one person's records, a search sends the whole active network. Replayed history is therefore scoped to the narrower of the two.
+Each message is sent with up to six earlier turns of the thread, capped at 3,000 characters, oldest dropped first. Only the user's messages and the assistant's replies are replayed. A reply is replayed together with a short list of what it changed, including record IDs, so a follow-up correction can reach the right record. Lines the app wrote itself and failed turns are not replayed.
 
-A capture or refinement request replays only the user's own turns and the assistant's capture replies. It never replays a search answer, because a search answer is built from the whole network and would widen a request the user approved as single-person. A search request may replay any earlier turn, because the same request already carries every active person.
-
-Replayed history is capped at six turns and 2,000 characters, oldest dropped first. History lives only in memory for the life of the thread; it is not written to Room or to backups, and starting a new thread discards it.
+History lives only in memory for the life of the thread; it is not written to Room or to backups, and starting a new thread discards it.
 
 ## Voice input
 
@@ -34,25 +38,13 @@ When on-device recognition is unavailable, the app does not silently switch prov
 
 Network App does not create or retain audio files, write speech or transcripts to logs, or add them to backups. Partial recognition is displayed only while listening. The final transcript is appended to the editable field and can be changed or discarded. A transcript is sent to the gateway only if the user later sends the message; voice input itself never submits or saves anything.
 
-## AI search
+## Answers about the network
 
-The first message that routes to search requires acknowledgement that each search sends the full active searchable network to the gateway operator and, through them, to Anthropic. The request includes:
-
-- names and the self marker;
-- positions with their organizations, roles, current/past state, and whether they are study;
-- background records;
-- locations, relationship context, tags, and profile notes;
-- interactions and their dates;
-- active needs and active capabilities with IDs and dates;
-- the user's search question and the replayed turns described under **Conversation history**.
-
-It excludes contact values, archived people, closed needs, inactive capabilities, gateway and GitHub credentials, and the backup passphrase. Declining the disclosure leaves local matching on the **People** tab fully usable. The app refuses to send a corpus larger than 1 MiB rather than silently truncating it. Consent is stored locally and can be revoked in Settings.
-
-The assistant must return existing person and evidence IDs. The app rejects unknown or mismatched IDs and always displays exact stored evidence and dates. AI results are suggestions, not facts or proof of willingness or availability. Network App never contacts or introduces anyone automatically.
+To answer a question, the assistant reads records through the same tool calls described above: a directory of people, records across the network (closed needs, inactive capabilities, past positions, and archived people only when it asks for them), keyword matches, notes in a date range, or one person in full. Tool results are paged, so a large network is read in parts rather than all at once. Answers are suggestions based on saved records, not facts or proof of willingness or availability. Network App never contacts or introduces anyone.
 
 ## Reported assistant answers
 
-Reporting a wrong answer stores a copy of your message, the assistant's answer, and the proposal or search results behind it in a local database table. Nothing is transmitted when a report is saved. Contact values are never copied into a report: a proposal that changed a contact field is recorded as having done so, without the value.
+Reporting a wrong answer stores a copy of your message, the assistant's answer, what the reply saved or queued, and the tool calls it made, in a local database table. Nothing is transmitted when a report is saved. Contact values are never copied into a report: a tool call that set a contact value is recorded without the value.
 
 Reports are included in the encrypted GitHub backup, alongside people and their records and under the same AES-256-GCM encryption and passphrase. They leave the phone only when a backup runs, and only to the private repository you configured; the app still refuses to back up to a public repository. Nothing about a report is sent to the AI gateway.
 
@@ -70,6 +62,6 @@ Request content is processed by the gateway operator and then by Anthropic under
 
 ## Failure and deletion
 
-Missing keys, rejected requests, invalid responses, unknown record IDs, quota limits, timeouts, and offline failures do not trigger fallback writes. Speech permission denial, unavailable recognition, no-match results, and speech-provider failures also leave existing text unchanged. The draft remains editable, and local search remains available. Removing the access token or revoking search consent stops later AI requests but does not delete requests already processed by the gateway operator or Anthropic.
+Missing keys, rejected requests, invalid responses, unknown record IDs, quota limits, timeouts, and offline failures do not trigger fallback writes. Speech permission denial, unavailable recognition, no-match results, and speech-provider failures also leave existing text unchanged. The draft remains editable, and local search remains available. Removing the access token or revoking the assistant's permission stops later AI requests but does not delete requests already processed by the gateway operator or Anthropic.
 
-Deleting a person locally cascades to linked interactions, needs, and capabilities. Deleting an AI-reviewed source interaction clears provenance links without deleting the derived records. Encrypted GitHub backups retain data until replaced or deleted from the configured private repository.
+Deleting a person locally cascades to linked interactions, needs, capabilities, positions, education, and background records. Deleting a source note clears provenance links without deleting the records derived from it. Encrypted GitHub backups retain data until replaced or deleted from the configured private repository.

@@ -35,7 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.azizjon.network.backup.GitHubBackupConfig
-import com.azizjon.network.ai.GatewayClient
+import com.azizjon.network.ai.AgentClient
 import com.azizjon.network.ai.GatewaySettings
 import com.azizjon.network.ai.GatewaySettingsState
 import com.azizjon.network.feedback.AiFeedbackLabel
@@ -53,7 +53,7 @@ fun SettingsScreen(
     feedbackState: FeedbackUiState,
     onSaveAccessToken: (String) -> Unit,
     onClearAccessToken: () -> Unit,
-    onRevokeAiSearchConsent: () -> Unit,
+    onRevokeAssistantConsent: () -> Unit,
     onSaveBackupConfig: (GitHubBackupConfig) -> Unit,
     onBackupNow: () -> Unit,
     onVerifyBackup: () -> Unit,
@@ -81,7 +81,7 @@ fun SettingsScreen(
         ) {
             Text("AI gateway", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Text(
-                "Natural-language capture sends only your draft and the selected person's non-contact context. A coverage review helps surface explicit facts before saving. AI search sends the disclosed active searchable network. Manual editing and local search remain available offline.",
+                "The assistant reads the records it needs to answer or to file what you tell it, never contact values. What it saves can be undone from its reply; deleting and merging wait for your confirmation. Manual editing and local search remain available offline.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             Card(Modifier.fillMaxWidth()) {
@@ -91,7 +91,7 @@ fun SettingsScreen(
                         fontWeight = FontWeight.SemiBold,
                         color = if (gatewaySettingsState.tokenSaved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                     )
-                    Text("Gateway: ${GatewayClient.GATEWAY_BASE_URL}", style = MaterialTheme.typography.bodySmall)
+                    Text("Gateway: ${AgentClient.GATEWAY_BASE_URL}", style = MaterialTheme.typography.bodySmall)
                     Text("The gateway selects the model, so it can change without an app update.", style = MaterialTheme.typography.bodySmall)
                     Text(
                         "Use a token issued for this device only. A token stored on a compromised or rooted phone may be extracted; revoke it on the gateway if that happens.",
@@ -122,15 +122,15 @@ fun SettingsScreen(
                     }
                     HorizontalDivider()
                     Text(
-                        if (gatewaySettingsState.fullNetworkSearchConsent) "Full-network AI search consent accepted" else "Full-network AI search consent not accepted",
+                        if (gatewaySettingsState.assistantConsent) "The assistant may read your network" else "The assistant has not been allowed to read your network yet",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
-                        "Search excludes contact values, archived people, closed needs, and inactive capabilities.",
+                        "It reads only what a request needs, through the gateway to Anthropic. Contact values never leave this phone.",
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    if (gatewaySettingsState.fullNetworkSearchConsent) {
-                        TextButton(onClick = onRevokeAiSearchConsent) { Text("Revoke search consent") }
+                    if (gatewaySettingsState.assistantConsent) {
+                        TextButton(onClick = onRevokeAssistantConsent) { Text("Revoke permission") }
                     }
                 }
             }

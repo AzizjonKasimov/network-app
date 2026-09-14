@@ -36,25 +36,25 @@ abstract class NetworkDao {
     abstract suspend fun personByName(name: String): PersonEntity?
 
     @Query("SELECT * FROM interactions WHERE id = :id LIMIT 1")
-    protected abstract suspend fun interaction(id: Long): InteractionEntity?
+    abstract suspend fun interaction(id: Long): InteractionEntity?
 
     @Query("SELECT * FROM needs WHERE id = :id LIMIT 1")
-    protected abstract suspend fun need(id: Long): NeedEntity?
+    abstract suspend fun need(id: Long): NeedEntity?
 
     @Query("SELECT * FROM capabilities WHERE id = :id LIMIT 1")
-    protected abstract suspend fun capability(id: Long): CapabilityEntity?
+    abstract suspend fun capability(id: Long): CapabilityEntity?
 
     @Query("SELECT * FROM affiliations WHERE id = :id LIMIT 1")
-    protected abstract suspend fun affiliation(id: Long): AffiliationEntity?
+    abstract suspend fun affiliation(id: Long): AffiliationEntity?
 
     @Query("SELECT * FROM facts WHERE id = :id LIMIT 1")
-    protected abstract suspend fun fact(id: Long): FactEntity?
+    abstract suspend fun fact(id: Long): FactEntity?
 
     @Insert
-    protected abstract suspend fun insertPerson(person: PersonEntity): Long
+    abstract suspend fun insertPerson(person: PersonEntity): Long
 
     @Update
-    protected abstract suspend fun updatePerson(person: PersonEntity)
+    abstract suspend fun updatePerson(person: PersonEntity)
 
     @Query("UPDATE people SET isSelf = 0 WHERE isSelf = 1 AND id != :keepId")
     protected abstract suspend fun clearOtherSelfRecords(keepId: Long)
@@ -72,23 +72,26 @@ abstract class NetworkDao {
     @Delete
     abstract suspend fun deletePerson(person: PersonEntity)
 
+    @Query("DELETE FROM people WHERE id = :id")
+    abstract suspend fun deletePersonById(id: Long)
+
     @Insert
     abstract suspend fun insertInteraction(interaction: InteractionEntity): Long
 
     @Update
-    protected abstract suspend fun updateInteraction(interaction: InteractionEntity)
+    abstract suspend fun updateInteraction(interaction: InteractionEntity)
 
     @Insert
     abstract suspend fun insertNeed(need: NeedEntity): Long
 
     @Update
-    protected abstract suspend fun updateNeed(need: NeedEntity)
+    abstract suspend fun updateNeed(need: NeedEntity)
 
     @Insert
     abstract suspend fun insertCapability(capability: CapabilityEntity): Long
 
     @Update
-    protected abstract suspend fun updateCapability(capability: CapabilityEntity)
+    abstract suspend fun updateCapability(capability: CapabilityEntity)
 
     @Query("DELETE FROM interactions WHERE id = :id")
     abstract suspend fun deleteInteraction(id: Long)
@@ -112,147 +115,13 @@ abstract class NetworkDao {
     abstract suspend fun insertFact(fact: FactEntity): Long
 
     @Update
-    protected abstract suspend fun updateFact(fact: FactEntity)
+    abstract suspend fun updateFact(fact: FactEntity)
 
     @Query("DELETE FROM facts WHERE id = :id")
     abstract suspend fun deleteFact(id: Long)
 
     @Query("UPDATE people SET updatedAt = :updatedAt WHERE id = :personId")
     abstract suspend fun touchPerson(personId: Long, updatedAt: Long)
-
-    @Transaction
-    open suspend fun applyAiProposal(proposal: AiWriteProposal, now: Long): AiWriteResult {
-        validateProposal(proposal, now)
-        val current = proposal.targetPersonId?.let { id ->
-            person(id)?.also { require(!it.archived) { "AI changes cannot target an archived person" } }
-                ?: throw IllegalArgumentException("The selected person no longer exists")
-        }
-        if (current == null) {
-            require(personByName(proposal.targetName.trim()) == null) {
-                "A person with this name already exists; choose the existing person"
-            }
-        }
-
-        val patches = proposal.profilePatches.filter { it.selected }
-        val base = current ?: PersonEntity(
-            name = proposal.targetName.trim(),
-            createdAt = now,
-            updatedAt = now,
-        )
-        val changed = patches.fold(base) { person, patch -> person.withPatch(patch) }
-            .copy(updatedAt = now)
-        require(changed.name.isNotBlank()) { "Name is required" }
-        val personId = savePerson(changed)
-
-        val auditId = insertInteraction(
-            InteractionEntity(
-                personId = personId,
-                note = proposal.rawInput,
-                occurredAt = proposal.occurredAt,
-                createdAt = now,
-                origin = InteractionEntity.ORIGIN_AI_REVIEWED,
-            ),
-        )
-
-        proposal.newNeeds.filter { it.selected }.forEach { addition ->
-            insertNeed(
-                NeedEntity(
-                    personId = personId,
-                    text = addition.text.trim(),
-                    lastConfirmedAt = proposal.occurredAt,
-                    createdAt = now,
-                    sourceInteractionId = auditId,
-                ),
-            )
-        }
-        proposal.newCapabilities.filter { it.selected }.forEach { addition ->
-            insertCapability(
-                CapabilityEntity(
-                    personId = personId,
-                    text = addition.text.trim(),
-                    lastConfirmedAt = proposal.occurredAt,
-                    createdAt = now,
-                    sourceInteractionId = auditId,
-                ),
-            )
-        }
-        proposal.newAffiliations.filter { it.selected }.forEach { addition ->
-            insertAffiliation(
-                AffiliationEntity(
-                    personId = personId,
-                    organization = addition.organization.trim(),
-                    role = addition.role.trim(),
-                    current = addition.current,
-                    lastConfirmedAt = proposal.occurredAt,
-                    createdAt = now,
-                    sourceInteractionId = auditId,
-                    kind = if (addition.education) AffiliationEntity.KIND_EDUCATION else AffiliationEntity.KIND_WORK,
-                ),
-            )
-        }
-        proposal.newFacts.filter { it.selected }.forEach { addition ->
-            insertFact(
-                FactEntity(
-                    personId = personId,
-                    text = addition.text.trim(),
-                    lastConfirmedAt = proposal.occurredAt,
-                    createdAt = now,
-                    sourceInteractionId = auditId,
-                ),
-            )
-        }
-        proposal.interactionEdits.filter { it.selected }.forEach { edit ->
-            val existing = interaction(edit.id)
-                ?: throw IllegalArgumentException("An interaction selected for editing no longer exists")
-            require(existing.personId == personId) { "An interaction belongs to a different person" }
-            updateInteraction(existing.copy(note = edit.note.trim(), occurredAt = edit.occurredAt))
-        }
-        proposal.needEdits.filter { it.selected }.forEach { edit ->
-            val existing = need(edit.id)
-                ?: throw IllegalArgumentException("A need selected for editing no longer exists")
-            require(existing.personId == personId) { "A need belongs to a different person" }
-            updateNeed(
-                existing.copy(
-                    text = edit.text.trim(),
-                    status = edit.status,
-                    lastConfirmedAt = edit.lastConfirmedAt,
-                ),
-            )
-        }
-        proposal.capabilityEdits.filter { it.selected }.forEach { edit ->
-            val existing = capability(edit.id)
-                ?: throw IllegalArgumentException("A capability selected for editing no longer exists")
-            require(existing.personId == personId) { "A capability belongs to a different person" }
-            updateCapability(
-                existing.copy(
-                    text = edit.text.trim(),
-                    active = edit.active,
-                    lastConfirmedAt = edit.lastConfirmedAt,
-                ),
-            )
-        }
-        proposal.affiliationEdits.filter { it.selected }.forEach { edit ->
-            val existing = affiliation(edit.id)
-                ?: throw IllegalArgumentException("A position selected for editing no longer exists")
-            require(existing.personId == personId) { "A position belongs to a different person" }
-            saveAffiliation(
-                existing.copy(
-                    organization = edit.organization.trim(),
-                    role = edit.role.trim(),
-                    current = edit.current,
-                    lastConfirmedAt = edit.lastConfirmedAt,
-                    kind = if (edit.education) AffiliationEntity.KIND_EDUCATION else AffiliationEntity.KIND_WORK,
-                ),
-            )
-        }
-        proposal.factEdits.filter { it.selected }.forEach { edit ->
-            val existing = fact(edit.id)
-                ?: throw IllegalArgumentException("A background fact selected for editing no longer exists")
-            require(existing.personId == personId) { "A background fact belongs to a different person" }
-            updateFact(existing.copy(text = edit.text.trim(), lastConfirmedAt = edit.lastConfirmedAt))
-        }
-        return AiWriteResult(personId = personId, auditInteractionId = auditId)
-    }
 
     @Query("SELECT * FROM people ORDER BY id")
     abstract suspend fun allPeople(): List<PersonEntity>
@@ -272,6 +141,25 @@ abstract class NetworkDao {
     @Query("SELECT * FROM facts ORDER BY id")
     abstract suspend fun allFacts(): List<FactEntity>
 
+    /** Every note and record a person owns, however it got there. */
+    @Query(
+        "SELECT (SELECT COUNT(*) FROM interactions WHERE personId = :personId) + " +
+            "(SELECT COUNT(*) FROM needs WHERE personId = :personId) + " +
+            "(SELECT COUNT(*) FROM capabilities WHERE personId = :personId) + " +
+            "(SELECT COUNT(*) FROM affiliations WHERE personId = :personId) + " +
+            "(SELECT COUNT(*) FROM facts WHERE personId = :personId)",
+    )
+    abstract suspend fun countOwnedRows(personId: Long): Int
+
+    /** Records that name [interactionId] as the note they came from. */
+    @Query(
+        "SELECT (SELECT COUNT(*) FROM needs WHERE sourceInteractionId = :interactionId) + " +
+            "(SELECT COUNT(*) FROM capabilities WHERE sourceInteractionId = :interactionId) + " +
+            "(SELECT COUNT(*) FROM affiliations WHERE sourceInteractionId = :interactionId) + " +
+            "(SELECT COUNT(*) FROM facts WHERE sourceInteractionId = :interactionId)",
+    )
+    abstract suspend fun countDerivedRows(interactionId: Long): Int
+
     @Query("UPDATE interactions SET personId = :personId WHERE id = :id")
     protected abstract suspend fun repointInteraction(id: Long, personId: Long): Int
 
@@ -286,6 +174,21 @@ abstract class NetworkDao {
 
     @Query("UPDATE facts SET personId = :personId WHERE sourceInteractionId = :interactionId")
     protected abstract suspend fun repointFacts(interactionId: Long, personId: Long): Int
+
+    @Query("UPDATE interactions SET personId = :toPersonId WHERE personId = :fromPersonId")
+    protected abstract suspend fun moveAllInteractions(fromPersonId: Long, toPersonId: Long): Int
+
+    @Query("UPDATE needs SET personId = :toPersonId WHERE personId = :fromPersonId")
+    protected abstract suspend fun moveAllNeeds(fromPersonId: Long, toPersonId: Long): Int
+
+    @Query("UPDATE capabilities SET personId = :toPersonId WHERE personId = :fromPersonId")
+    protected abstract suspend fun moveAllCapabilities(fromPersonId: Long, toPersonId: Long): Int
+
+    @Query("UPDATE affiliations SET personId = :toPersonId WHERE personId = :fromPersonId")
+    protected abstract suspend fun moveAllAffiliations(fromPersonId: Long, toPersonId: Long): Int
+
+    @Query("UPDATE facts SET personId = :toPersonId WHERE personId = :fromPersonId")
+    protected abstract suspend fun moveAllFacts(fromPersonId: Long, toPersonId: Long): Int
 
     /**
      * Moves one note, and everything that note created, onto another person.
@@ -342,6 +245,42 @@ abstract class NetworkDao {
         touchPerson(source, now)
         touchPerson(target.id, now)
         return moved
+    }
+
+    /**
+     * Folds a duplicate entry into the one being kept, then deletes the duplicate.
+     *
+     * Every note and record moves, so nothing is lost with the deleted row. The
+     * kept profile wins wherever it already says something; the duplicate only
+     * fills fields the kept one left empty, and its tags and notes are added
+     * rather than dropped.
+     */
+    @Transaction
+    open suspend fun mergePeople(keepId: Long, mergeId: Long, now: Long): MergeResult {
+        require(keepId != mergeId) { "Those are the same person" }
+        val keep = person(keepId) ?: throw IllegalArgumentException("The person to keep no longer exists")
+        val merge = person(mergeId) ?: throw IllegalArgumentException("The person to merge no longer exists")
+
+        val moved = moveAllInteractions(mergeId, keepId) +
+            moveAllNeeds(mergeId, keepId) +
+            moveAllCapabilities(mergeId, keepId) +
+            moveAllAffiliations(mergeId, keepId) +
+            moveAllFacts(mergeId, keepId)
+        savePerson(
+            keep.copy(
+                location = keep.location.ifBlank { merge.location },
+                contact = keep.contact.ifBlank { merge.contact },
+                relationship = keep.relationship.ifBlank { merge.relationship },
+                tags = mergeTags(keep.tags, merge.tags),
+                notes = listOf(keep.notes, merge.notes).map(String::trim).filter(String::isNotEmpty).distinct()
+                    .joinToString("\n\n"),
+                isSelf = keep.isSelf || merge.isSelf,
+                archived = keep.archived && merge.archived,
+                updatedAt = now,
+            ),
+        )
+        deletePersonById(mergeId)
+        return MergeResult(keptName = keep.name, mergedName = merge.name, movedRows = moved)
     }
 
     @Query("SELECT * FROM ai_feedback ORDER BY createdAt DESC, id DESC")
@@ -424,96 +363,10 @@ abstract class NetworkDao {
         restoreFeedback(feedback)
     }
 
-    private fun validateProposal(proposal: AiWriteProposal, now: Long) {
-        require(proposal.rawInput.isNotBlank()) { "The original note is empty" }
-        require(proposal.rawInput.length <= 4_000) { "The original note is too long" }
-        require(proposal.targetName.trim().isNotBlank()) { "The assistant did not identify a person" }
-        require(proposal.targetName.trim().length <= 200) { "The person's name is too long" }
-        require(proposal.occurredAt in 1..(now + 5 * 60_000L)) { "The interaction date is invalid" }
-        require(proposal.interactionOnlyFacts.size <= 50) { "The assistant returned too many interaction-only facts" }
-        require(proposal.interactionOnlyFacts.distinctBy { it.trim().lowercase() }.size == proposal.interactionOnlyFacts.size) {
-            "The assistant returned duplicate interaction-only facts"
-        }
-        proposal.interactionOnlyFacts.forEach { fact ->
-            require(fact.isNotBlank() && fact.length <= 500) { "An interaction-only fact is invalid" }
-        }
-
-        val selectedPatches = proposal.profilePatches.filter { it.selected }
-        require(selectedPatches.map { it.field }.distinct().size == selectedPatches.size) {
-            "The assistant proposed the same profile field more than once"
-        }
-        selectedPatches.forEach { patch ->
-            val maximum = if (patch.field == ProfileField.NOTES) 4_000 else if (patch.field == ProfileField.NAME) 200 else 500
-            require(patch.value.length <= maximum) { "A proposed profile value is too long" }
-            if (patch.field == ProfileField.NAME) require(patch.value.trim().isNotBlank()) { "Name is required" }
-        }
-
-        proposal.newNeeds.filter { it.selected }.forEach { validateRecordText(it.text) }
-        proposal.newCapabilities.filter { it.selected }.forEach { validateRecordText(it.text) }
-        proposal.newAffiliations.filter { it.selected }.forEach { validateAffiliation(it.organization, it.role) }
-        proposal.newFacts.filter { it.selected }.forEach { validateRecordText(it.text) }
-        require(proposal.factEdits.filter { it.selected }.map { it.id }.distinct().size == proposal.factEdits.count { it.selected }) {
-            "The assistant proposed the same background fact more than once"
-        }
-        proposal.factEdits.filter { it.selected }.forEach { edit ->
-            require(edit.id > 0) { "A background fact ID is invalid" }
-            validateRecordText(edit.text)
-            require(edit.lastConfirmedAt in 1..(now + 5 * 60_000L)) { "A background fact date is invalid" }
-        }
-        require(proposal.affiliationEdits.filter { it.selected }.map { it.id }.distinct().size == proposal.affiliationEdits.count { it.selected }) {
-            "The assistant proposed the same position more than once"
-        }
-        proposal.affiliationEdits.filter { it.selected }.forEach { edit ->
-            require(edit.id > 0) { "A position ID is invalid" }
-            validateAffiliation(edit.organization, edit.role)
-            require(edit.lastConfirmedAt in 1..(now + 5 * 60_000L)) { "A position date is invalid" }
-        }
-        require(proposal.interactionEdits.filter { it.selected }.map { it.id }.distinct().size == proposal.interactionEdits.count { it.selected }) {
-            "The assistant proposed the same interaction more than once"
-        }
-        require(proposal.needEdits.filter { it.selected }.map { it.id }.distinct().size == proposal.needEdits.count { it.selected }) {
-            "The assistant proposed the same need more than once"
-        }
-        require(proposal.capabilityEdits.filter { it.selected }.map { it.id }.distinct().size == proposal.capabilityEdits.count { it.selected }) {
-            "The assistant proposed the same capability more than once"
-        }
-        proposal.interactionEdits.filter { it.selected }.forEach { edit ->
-            require(edit.id > 0) { "An interaction ID is invalid" }
-            require(edit.note.isNotBlank() && edit.note.length <= 4_000) { "An interaction edit is invalid" }
-            require(edit.occurredAt in 1..(now + 5 * 60_000L)) { "An interaction date is invalid" }
-        }
-        proposal.needEdits.filter { it.selected }.forEach { edit ->
-            require(edit.id > 0) { "A need ID is invalid" }
-            validateRecordText(edit.text)
-            require(edit.status == NeedEntity.STATUS_ACTIVE || edit.status == NeedEntity.STATUS_CLOSED) {
-                "A need status is invalid"
-            }
-            require(edit.lastConfirmedAt in 1..(now + 5 * 60_000L)) { "A need date is invalid" }
-        }
-        proposal.capabilityEdits.filter { it.selected }.forEach { edit ->
-            require(edit.id > 0) { "A capability ID is invalid" }
-            validateRecordText(edit.text)
-            require(edit.lastConfirmedAt in 1..(now + 5 * 60_000L)) { "A capability date is invalid" }
-        }
-    }
-
-    private fun validateRecordText(text: String) {
-        require(text.isNotBlank() && text.length <= 1_000) { "A proposed record is invalid" }
-    }
-
-    private fun validateAffiliation(organization: String, role: String) {
-        require(organization.trim().isNotBlank() || role.trim().isNotBlank()) {
-            "A proposed position needs an organization or a role"
-        }
-        require(organization.length <= 500 && role.length <= 500) { "A proposed position is too long" }
-    }
-
-    private fun PersonEntity.withPatch(patch: ProfilePatch): PersonEntity = when (patch.field) {
-        ProfileField.NAME -> copy(name = patch.value.trim())
-        ProfileField.LOCATION -> copy(location = patch.value.trim())
-        ProfileField.CONTACT -> copy(contact = patch.value.trim())
-        ProfileField.RELATIONSHIP -> copy(relationship = patch.value.trim())
-        ProfileField.TAGS -> copy(tags = patch.value.trim())
-        ProfileField.NOTES -> copy(notes = patch.value.trim())
-    }
+    private fun mergeTags(first: String, second: String): String =
+        (first.split(',') + second.split(','))
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .distinctBy { it.lowercase() }
+            .joinToString(", ")
 }
