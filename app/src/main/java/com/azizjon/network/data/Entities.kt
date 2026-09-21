@@ -83,6 +83,12 @@ data class NeedEntity(
     val lastConfirmedAt: Long,
     val createdAt: Long,
     val sourceInteractionId: Long? = null,
+    /**
+     * When the user marked that they helped with this, or null while they have
+     * not. Kept apart from [status]: an introduction or a pointer helps without
+     * solving anything, so a need can be helped with and still open.
+     */
+    val helpedAt: Long? = null,
 ) {
     companion object {
         const val STATUS_ACTIVE = "active"

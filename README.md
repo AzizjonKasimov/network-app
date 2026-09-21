@@ -11,6 +11,7 @@ The first native Android version includes:
 - keep background facts that are not a need, a capability, a position, or education as their own dated, editable records;
 - mark a profile as the user's own profile for reciprocal matching;
 - record dated interactions, needs/goals, and capabilities/resources;
+- a **Needs** tab listing what everyone else in the network is trying to solve or get, with the ones you have not helped with yet up front;
 - private on-device matching across profile fields and linked records;
 - a single chat thread where an agent answers any question about the network and records what the user tells it, across several people in one message;
 - changes the assistant saves land immediately and can be undone together from its reply;
@@ -30,6 +31,18 @@ The first native Android version includes:
 The current signed release is [`v0.14.0`](https://github.com/AzizjonKasimov/network-app-releases/releases/tag/v0.14.0) (version code `16`). Its GitHub asset and updater manifest have been verified against the package version, byte size, SHA-256 digest, and pinned signing certificate.
 
 Manual editing and local matching remain fully available without the gateway or network access. What the assistant saves is listed under its reply with one **Undo**, and deleting or merging always waits for a tap.
+
+## Needs
+
+The **Needs** tab gathers every open need or goal saved on the people in your network into one list, so you can scan for something you could help with without opening each person. Your own profile's needs and archived people are left out. Each card shows the need, who has it, and its date; tap it to open that person.
+
+Needs sit in three lists:
+
+- **To help** - still open, and you have not helped yet. The most recently confirmed come first.
+- **Helped** - still open, and you tapped **I helped**. Helping is recorded apart from the need being over, because an introduction or a pointer rarely solves the problem outright.
+- **Closed** - you tapped **Close** because it was solved or no longer applies, or the assistant closed it.
+
+Nothing on this screen deletes anything: **Not helped yet** and **Reopen** move a card back. The date you helped shows on the person's page too, and it travels in the encrypted backup with everything else. The assistant's tools do not read or set it yet, so mark help here.
 
 ## AI gateway and the assistant
 
@@ -166,6 +179,7 @@ The script verifies the active GitHub account and repository visibility, prevent
 - Room schema version 3 moves organization and role off the person onto an `affiliations` table, so a person can hold several concurrent positions. The migration turns each stored pair into one current position, and backups written before version 3 are rebuilt the same way on restore.
 - Room schema version 4 adds a `facts` table for background records and a work/education kind on each position. Existing positions migrate as work, and older backups restore with no background records because there was no way to write one.
 - Room schema version 5 adds a standalone `ai_feedback` table for reported assistant answers, with no foreign keys so a report outlives the records it describes. Schema version 6 drops its exported marker, which only ever tracked a share-sheet export that no longer exists.
+- Room schema version 7 adds a nullable `helpedAt` to needs, recording when the user helped with one independently of whether it is still open. Existing needs migrate as not helped yet. Backup schema 7 carries the date; backups written earlier restore every need as not helped, and an older app reports a schema 7 backup as unsupported rather than silently dropping it. The Needs tab's grouping lives in `data/NeedsBoard.kt`.
 - Repository boundary and state-flow presentation with simple application-owned dependency wiring.
 - Local deterministic matching in `NetworkMatcher`, reachable without AI from the **People** tab.
 - Re-filing a misfiled note in `NetworkDao.moveInteraction`, a single transaction that re-points the interaction and every record carrying its id, creating the destination person when the note belongs to somebody not yet saved. The assistant's `move_note` tool uses the same transaction.

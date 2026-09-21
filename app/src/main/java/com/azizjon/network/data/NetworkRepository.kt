@@ -165,6 +165,26 @@ class NetworkRepository(private val dao: NetworkDao) {
         dao.touchPerson(item.personId, System.currentTimeMillis())
     }
 
+    /** Marks that the user helped with a need, or takes that back. The need stays open either way. */
+    suspend fun setNeedHelped(item: NeedEntity, helped: Boolean) {
+        val now = System.currentTimeMillis()
+        if (dao.setNeedHelpedAt(item.id, if (helped) now else null) == 0) throw IllegalArgumentException(NEED_GONE)
+        dao.touchPerson(item.personId, now)
+    }
+
+    /**
+     * Closes a need that was solved or no longer applies, or reopens it.
+     *
+     * Dated today either way, the same as marking a position past: the user has
+     * just confirmed what state it is in.
+     */
+    suspend fun setNeedActive(item: NeedEntity, active: Boolean) {
+        val now = System.currentTimeMillis()
+        val status = if (active) NeedEntity.STATUS_ACTIVE else NeedEntity.STATUS_CLOSED
+        if (dao.setNeedStatus(item.id, status, now) == 0) throw IllegalArgumentException(NEED_GONE)
+        dao.touchPerson(item.personId, now)
+    }
+
     suspend fun deleteCapability(item: CapabilityEntity) {
         dao.deleteCapability(item.id)
         dao.touchPerson(item.personId, System.currentTimeMillis())
@@ -217,6 +237,8 @@ class NetworkRepository(private val dao: NetworkDao) {
     )
 
     companion object {
+        private const val NEED_GONE = "That need no longer exists"
+
         /** Caps so one enormous note cannot bloat the database or a report. */
         const val MAX_FEEDBACK_NOTE_CHARACTERS = 1_000
         const val MAX_FEEDBACK_TEXT_CHARACTERS = 4_000

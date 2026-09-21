@@ -264,7 +264,7 @@ fun PersonDetailScreen(
             }
             RecordSection("Needs / goals", needs.size, { addKind = RecordKind.NEED }) {
                 needs.forEach { item ->
-                    RecordCard(item.text, item.lastConfirmedAt, { onDeleteNeed(item) }, if (item.status == "active") "" else "Closed")
+                    RecordCard(item.text, item.lastConfirmedAt, { onDeleteNeed(item) }, needStatus(item))
                 }
             }
             RecordSection("Interactions", interactions.size, { addKind = RecordKind.INTERACTION }) {
@@ -574,6 +574,12 @@ private fun FormField(
     )
 }
 
+/** "Closed", "You helped on 2026-09-21", both, or nothing for an open need the user has not helped with. */
+private fun needStatus(need: NeedEntity): String = listOfNotNull(
+    "Closed".takeIf { need.status != NeedEntity.STATUS_ACTIVE },
+    helpedLabel(need),
+).joinToString(" · ")
+
 private val dayFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
-private fun formatDate(timestamp: Long): String =
+internal fun formatDate(timestamp: Long): String =
     Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()).toLocalDate().format(dayFormatter)

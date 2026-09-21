@@ -17,7 +17,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FactEntity::class,
         AiFeedbackEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 abstract class NetworkDatabase : RoomDatabase() {
@@ -31,8 +31,18 @@ abstract class NetworkDatabase : RoomDatabase() {
                 context.applicationContext,
                 NetworkDatabase::class.java,
                 "network.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .build().also { instance = it }
+        }
+
+        /**
+         * Records when the user helped with a need. Every existing need starts
+         * as not helped yet, which is the only thing that could be known.
+         */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE needs ADD COLUMN helpedAt INTEGER")
+            }
         }
 
         /**

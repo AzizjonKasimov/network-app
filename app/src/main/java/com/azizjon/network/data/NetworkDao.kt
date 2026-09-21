@@ -99,6 +99,14 @@ abstract class NetworkDao {
     @Query("DELETE FROM needs WHERE id = :id")
     abstract suspend fun deleteNeed(id: Long)
 
+    // Single-column updates, so a tap on the Needs screen cannot overwrite an
+    // edit the assistant made to the same row a moment earlier.
+    @Query("UPDATE needs SET helpedAt = :helpedAt WHERE id = :id")
+    abstract suspend fun setNeedHelpedAt(id: Long, helpedAt: Long?): Int
+
+    @Query("UPDATE needs SET status = :status, lastConfirmedAt = :confirmedAt WHERE id = :id")
+    abstract suspend fun setNeedStatus(id: Long, status: String, confirmedAt: Long): Int
+
     @Query("DELETE FROM capabilities WHERE id = :id")
     abstract suspend fun deleteCapability(id: Long)
 

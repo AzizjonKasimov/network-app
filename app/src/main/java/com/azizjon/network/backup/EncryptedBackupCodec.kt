@@ -40,11 +40,12 @@ object EncryptedBackupCodec {
 
     /**
      * Shape of the decrypted payload. Bumped whenever a list is added, or a value
-     * appears that an older version would reject: 6 adds the assistant note
-     * origin, so an older app says the backup is too new instead of calling it
-     * damaged.
+     * appears that an older version would reject or silently drop: 6 adds the
+     * assistant note origin, so an older app says the backup is too new instead
+     * of calling it damaged, and 7 adds when the user helped with a need, which
+     * an older app would restore as never helped.
      */
-    internal const val SCHEMA_VERSION = 6
+    internal const val SCHEMA_VERSION = 7
 
     /** A sane ceiling so a damaged backup cannot flood the table on restore. */
     private const val MAX_FEEDBACK_ROWS = 5_000
@@ -143,6 +144,7 @@ object EncryptedBackupCodec {
         .put("id", id).put("personId", personId).put("text", text).put("status", status)
         .put("lastConfirmedAt", lastConfirmedAt).put("createdAt", createdAt)
         .put("sourceInteractionId", sourceInteractionId ?: JSONObject.NULL)
+        .put("helpedAt", helpedAt ?: JSONObject.NULL)
 
     private fun CapabilityEntity.toJson() = JSONObject()
         .put("id", id).put("personId", personId).put("text", text)
@@ -209,6 +211,8 @@ object EncryptedBackupCodec {
                     text = item.getString("text"), status = item.optString("status", "active"),
                     lastConfirmedAt = item.getLong("lastConfirmedAt"), createdAt = item.getLong("createdAt"),
                     sourceInteractionId = if (schemaVersion >= 2) item.optionalLong("sourceInteractionId") else null,
+                    // Absent before schema 7, when nothing could be marked helped.
+                    helpedAt = item.optionalLong("helpedAt"),
                 )
             },
             capabilities = json.getJSONArray("capabilities").mapObjects { item ->

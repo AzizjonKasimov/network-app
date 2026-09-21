@@ -11,6 +11,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -37,6 +38,7 @@ class NetworkDatabaseMigrationTest {
                 NetworkDatabase.MIGRATION_3_4,
                 NetworkDatabase.MIGRATION_4_5,
                 NetworkDatabase.MIGRATION_5_6,
+                NetworkDatabase.MIGRATION_6_7,
             )
             .build()
         try {
@@ -44,6 +46,9 @@ class NetworkDatabaseMigrationTest {
             assertEquals("Legacy Person", dao.allPeople().single().name)
             assertEquals(InteractionEntity.ORIGIN_MANUAL, dao.allInteractions().single().origin)
             assertNull(dao.allNeeds().single().sourceInteractionId)
+            // Nothing could be marked helped before, so every need is still waiting.
+            assertNull(dao.allNeeds().single().helpedAt)
+            assertEquals(NeedEntity.STATUS_ACTIVE, dao.allNeeds().single().status)
             assertTrue(dao.allCapabilities().single().active)
             assertNull(dao.allCapabilities().single().sourceInteractionId)
 
@@ -97,6 +102,46 @@ class NetworkDatabaseMigrationTest {
             // Deleting the person takes their positions with them.
             dao.deletePerson(dao.allPeople().single())
             assertTrue(dao.allAffiliations().isEmpty())
+        } finally {
+            database.close()
+        }
+    }
+
+    /** Helping with a need and the need being over are separate facts, and each can be taken back. */
+    @Test
+    fun helpingWithANeedIsRecordedApartFromClosingIt() = runBlocking<Unit> {
+        val database = Room.inMemoryDatabaseBuilder(context, NetworkDatabase::class.java).build()
+        try {
+            val dao = database.networkDao()
+            val repository = NetworkRepository(dao)
+            val personId = dao.savePerson(PersonEntity(name = "Synthetic Person", createdAt = 1, updatedAt = 1))
+            dao.insertNeed(NeedEntity(personId = personId, text = "Find a synthetic investor", lastConfirmedAt = 2, createdAt = 2))
+
+            repository.setNeedHelped(dao.allNeeds().single(), helped = true)
+            val helped = dao.allNeeds().single()
+            assertNotNull(helped.helpedAt)
+            // Helping is not solving: the need stays open, dated as before.
+            assertEquals(NeedEntity.STATUS_ACTIVE, helped.status)
+            assertEquals(2L, helped.lastConfirmedAt)
+
+            repository.setNeedActive(helped, active = false)
+            val closed = dao.allNeeds().single()
+            assertEquals(NeedEntity.STATUS_CLOSED, closed.status)
+            assertEquals(helped.helpedAt, closed.helpedAt)
+            assertTrue(closed.lastConfirmedAt > 2L)
+
+            repository.setNeedActive(closed, active = true)
+            repository.setNeedHelped(dao.allNeeds().single(), helped = false)
+            val reopened = dao.allNeeds().single()
+            assertEquals(NeedEntity.STATUS_ACTIVE, reopened.status)
+            assertNull(reopened.helpedAt)
+            assertEquals("Find a synthetic investor", reopened.text)
+
+            // A need deleted in the meantime is reported, not silently skipped.
+            dao.deleteNeed(reopened.id)
+            assertThrows(IllegalArgumentException::class.java) {
+                runBlocking { repository.setNeedHelped(reopened, helped = true) }
+            }
         } finally {
             database.close()
         }

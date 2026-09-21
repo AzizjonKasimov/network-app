@@ -171,6 +171,26 @@ class EncryptedBackupCodecTest {
     }
 
     @Test
+    fun backupsWrittenBeforeHelpedNeedsRestoreEveryNeedAsNotHelpedYet() {
+        val v6 = JSONObject()
+            .put("schemaVersion", 6)
+            .put("people", JSONArray().put(JSONObject()
+                .put("id", 1).put("name", "Legacy Person").put("createdAt", 1).put("updatedAt", 2)))
+            .put("interactions", JSONArray())
+            .put("needs", JSONArray().put(JSONObject()
+                .put("id", 3).put("personId", 1).put("text", "Legacy need").put("status", "active")
+                .put("lastConfirmedAt", 5).put("createdAt", 6).put("sourceInteractionId", JSONObject.NULL)))
+            .put("capabilities", JSONArray())
+            .put("affiliations", JSONArray())
+            .put("facts", JSONArray())
+
+        val need = EncryptedBackupCodec.payloadFromJson(v6.toString()).snapshot.needs.single()
+
+        assertEquals(null, need.helpedAt)
+        assertEquals(NeedEntity.STATUS_ACTIVE, need.status)
+    }
+
+    @Test
     fun notesTheAssistantSavedRoundTripAndUnknownOriginsAreRejected() {
         val snapshot = sampleSnapshot().let { sample ->
             sample.copy(interactions = sample.interactions + InteractionEntity(9, 1, "Saved by the agent", 3, 4, InteractionEntity.ORIGIN_ASSISTANT))
@@ -190,7 +210,11 @@ class EncryptedBackupCodecTest {
             interactions = listOf(
                 InteractionEntity(2, 1, "Private conversation", 3, 4, InteractionEntity.ORIGIN_AI_REVIEWED),
             ),
-            needs = listOf(NeedEntity(3, 1, "Find a designer", "active", 5, 6, sourceInteractionId = 2)),
+            needs = listOf(
+                NeedEntity(3, 1, "Find a designer", "active", 5, 6, sourceInteractionId = 2),
+                // Helped with and still open, so the helped date must survive on its own.
+                NeedEntity(9, 1, "Meet a seed investor", "active", 17, 18, helpedAt = 19),
+            ),
             capabilities = listOf(CapabilityEntity(4, 1, "Kotlin mentoring", 7, 8, active = false, sourceInteractionId = 2)),
             affiliations = listOf(
                 AffiliationEntity(5, 1, "Northwind Labs", "CEO", current = true, lastConfirmedAt = 9, createdAt = 10),

@@ -1,5 +1,6 @@
 package com.azizjon.network.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -16,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -25,6 +27,7 @@ import com.azizjon.network.update.rememberUpdatePromptState
 private enum class AppSection(val label: String) {
     CHAT("Assistant"),
     PEOPLE("People"),
+    NEEDS("Needs"),
     SETTINGS("Settings"),
 }
 
@@ -43,6 +46,7 @@ fun NetworkApp(viewModel: NetworkViewModel) {
     val snackbar = remember { SnackbarHostState() }
     var section by rememberSaveable { mutableStateOf(AppSection.CHAT) }
     var selectedPersonId by rememberSaveable { mutableStateOf<Long?>(null) }
+    val sectionState = rememberSaveableStateHolder()
     val updateState = rememberUpdatePromptState(viewModel::showMessage)
 
     LaunchedEffect(message) {
@@ -50,6 +54,10 @@ fun NetworkApp(viewModel: NetworkViewModel) {
         snackbar.showSnackbar(value)
         viewModel.clearMessage()
     }
+
+    // Back from a person returns to the list they were opened from instead of
+    // closing the app.
+    BackHandler(enabled = selectedPersonId != null) { selectedPersonId = null }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -99,48 +107,58 @@ fun NetworkApp(viewModel: NetworkViewModel) {
                     onDeleteFact = viewModel::deleteFact,
                 )
             } else {
-                when (section) {
-                    AppSection.CHAT -> ChatScreen(
-                        chat = chat,
-                        snapshot = snapshot,
-                        draft = composerDraft,
-                        consentRequested = consentRequested,
-                        feedbackTarget = feedbackTarget,
-                        speechFallbackAllowed = speechFallbackAllowed,
-                        onDraftChange = viewModel::updateComposerDraft,
-                        onSend = viewModel::sendChatMessage,
-                        onAllowSpeechFallback = viewModel::allowSpeechFallbackForSession,
-                        onOpenPerson = { selectedPersonId = it },
-                        onUndo = viewModel::undoChatChanges,
-                        onConfirmAction = viewModel::confirmChatAction,
-                        onKeepAction = viewModel::keepChatAction,
-                        onConfirmConsent = viewModel::confirmAssistantConsent,
-                        onDismissConsent = viewModel::dismissAssistantConsent,
-                        onReportMessage = viewModel::startFeedback,
-                        onDismissFeedback = viewModel::dismissFeedback,
-                        onSubmitFeedback = viewModel::submitFeedback,
-                        onNewChat = viewModel::startNewChat,
-                    )
-                    AppSection.PEOPLE -> PeopleScreen(
-                        snapshot = snapshot,
-                        onOpenPerson = { selectedPersonId = it },
-                        onSavePerson = viewModel::savePerson,
-                    )
-                    AppSection.SETTINGS -> SettingsScreen(
-                        backupState = backupState,
-                        gatewaySettingsState = gatewaySettingsState,
-                        updateState = updateState,
-                        feedbackState = feedbackState,
-                        onSaveAccessToken = viewModel::saveAccessToken,
-                        onClearAccessToken = viewModel::clearAccessToken,
-                        onRevokeAssistantConsent = viewModel::revokeAssistantConsent,
-                        onSaveBackupConfig = viewModel::saveBackupConfig,
-                        onBackupNow = viewModel::backupNow,
-                        onVerifyBackup = viewModel::verifyBackup,
-                        onRestore = viewModel::restoreFromGitHub,
-                        onDeleteFeedback = viewModel::deleteFeedback,
-                        onClearFeedback = viewModel::clearAllFeedback,
-                    )
+                // Each tab keeps its list, filter, and scroll position while a
+                // person is open, so Back lands where the user left off.
+                sectionState.SaveableStateProvider(section.name) {
+                    when (section) {
+                        AppSection.CHAT -> ChatScreen(
+                            chat = chat,
+                            snapshot = snapshot,
+                            draft = composerDraft,
+                            consentRequested = consentRequested,
+                            feedbackTarget = feedbackTarget,
+                            speechFallbackAllowed = speechFallbackAllowed,
+                            onDraftChange = viewModel::updateComposerDraft,
+                            onSend = viewModel::sendChatMessage,
+                            onAllowSpeechFallback = viewModel::allowSpeechFallbackForSession,
+                            onOpenPerson = { selectedPersonId = it },
+                            onUndo = viewModel::undoChatChanges,
+                            onConfirmAction = viewModel::confirmChatAction,
+                            onKeepAction = viewModel::keepChatAction,
+                            onConfirmConsent = viewModel::confirmAssistantConsent,
+                            onDismissConsent = viewModel::dismissAssistantConsent,
+                            onReportMessage = viewModel::startFeedback,
+                            onDismissFeedback = viewModel::dismissFeedback,
+                            onSubmitFeedback = viewModel::submitFeedback,
+                            onNewChat = viewModel::startNewChat,
+                        )
+                        AppSection.PEOPLE -> PeopleScreen(
+                            snapshot = snapshot,
+                            onOpenPerson = { selectedPersonId = it },
+                            onSavePerson = viewModel::savePerson,
+                        )
+                        AppSection.NEEDS -> NeedsScreen(
+                            snapshot = snapshot,
+                            onOpenPerson = { selectedPersonId = it },
+                            onSetHelped = viewModel::setNeedHelped,
+                            onSetActive = viewModel::setNeedActive,
+                        )
+                        AppSection.SETTINGS -> SettingsScreen(
+                            backupState = backupState,
+                            gatewaySettingsState = gatewaySettingsState,
+                            updateState = updateState,
+                            feedbackState = feedbackState,
+                            onSaveAccessToken = viewModel::saveAccessToken,
+                            onClearAccessToken = viewModel::clearAccessToken,
+                            onRevokeAssistantConsent = viewModel::revokeAssistantConsent,
+                            onSaveBackupConfig = viewModel::saveBackupConfig,
+                            onBackupNow = viewModel::backupNow,
+                            onVerifyBackup = viewModel::verifyBackup,
+                            onRestore = viewModel::restoreFromGitHub,
+                            onDeleteFeedback = viewModel::deleteFeedback,
+                            onClearFeedback = viewModel::clearAllFeedback,
+                        )
+                    }
                 }
             }
         }

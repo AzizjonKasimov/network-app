@@ -188,6 +188,17 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
     fun deleteNeed(item: NeedEntity) = mutate { repository.deleteNeed(item) }
     fun deleteCapability(item: CapabilityEntity) = mutate { repository.deleteCapability(item) }
 
+    // Each tap takes the card off the list being looked at, so say where it went.
+    fun setNeedHelped(item: NeedEntity, helped: Boolean) = mutate {
+        repository.setNeedHelped(item, helped)
+        showMessage(if (helped) "Moved to Helped" else "Moved back to To help")
+    }
+
+    fun setNeedActive(item: NeedEntity, active: Boolean) = mutate {
+        repository.setNeedActive(item, active)
+        showMessage(if (active) "Reopened" else "Moved to Closed")
+    }
+
     fun updateComposerDraft(value: String) {
         if (_composerDraft.value == value) return
         _composerDraft.value = value
