@@ -49,7 +49,7 @@ class AssistantAgent(
             }
             val done = event as AgentEvent.Done
             AgentOutcome(
-                reply = done.text.ifBlank { if (log.saved.isEmpty()) "Done." else "Saved." },
+                reply = PlainReply.from(done.text).ifBlank { if (log.saved.isEmpty()) "Done." else "Saved." },
                 log = log,
                 error = null,
             )
