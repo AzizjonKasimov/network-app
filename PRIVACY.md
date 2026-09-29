@@ -8,7 +8,7 @@ Manual person and record editing, local evidence-backed matching, browsing, arch
 
 ## The assistant
 
-Recording, correcting, and asking share one chat thread on the **Assistant** tab. The first message asks, once, for permission for the assistant to read the network; the permission is stored locally and can be revoked in Settings, and declining leaves manual editing and the **People** tab's local matching fully usable.
+Recording, correcting, and asking share one chat thread on the **Assistant** tab. The first message asks, once, for permission for the assistant to read the network and to look people up on the web when asked; the permission is stored locally and can be revoked in Settings, and declining leaves manual editing and the **People** tab's local matching fully usable. Installs that granted the older permission, which did not cover the web, are asked again.
 
 Each message starts an agent turn on the gateway. The request carries the message, the bounded conversation history described below, the current time, time zone, and locale, the assistant's instructions, and descriptions of the tools it may use. No stored records are included in that request.
 
@@ -16,13 +16,27 @@ The assistant then works through tool calls. The gateway hands each call back to
 
 Tool results reach the gateway operator and, through them, Anthropic, in the same way as the message itself. The database is never uploaded as a whole, the gateway does not keep tool results after the turn, and backup secrets and the access token are never part of any tool result.
 
+## Web lookups
+
+When a message asks the assistant to look someone up, or includes a link, the assistant can also search the web and read pages. These two tools run on the gateway rather than the phone. Every turn offers them, and the assistant's instructions limit their use to lookups the user asks for.
+
+- **Searches** go through Anthropic's web search. A query carries the person's name and the few details that tell them apart, such as their organization, role, or city. The instructions forbid putting anything else from the saved records into a query or a page address.
+- **Pages** are fetched by the gateway, so a site sees the gateway's address and the page requested, not the phone. What a page says is summarised through Anthropic in the same way as the rest of the turn.
+- **Which pages can be opened** is enforced by the gateway rather than left to the model. A page opens only when its address appeared in the user's message, or in a search result or page read earlier in the same turn. The model can never open an address it composed, so a planted page cannot get it to send records out inside a link. Raw IP addresses and private-network hosts are refused outright, and a turn allows at most ten lookups.
+
+The card under the reply lists every search query and page address, including pages that could not be opened. The gateway's logs record only whether a turn allowed the web and how many lookups it made, never the queries or addresses.
+
+What a lookup finds is saved on the phone like any other change and can be undone from the reply. It is saved as a note marked as found on the web, ending with the addresses of the pages used, and the records drawn from it are labelled as from the web. The instructions allow only work, study, location, and professional or public background to be saved. Contact details, family, health, beliefs, and other private details found online must not be saved. When a result could be a different person with the same name, the assistant must save nothing and ask. What the user said outranks what a page says.
+
+LinkedIn refuses automated page reads, so a LinkedIn link is looked up through search results instead of the profile page.
+
 ## Changes the assistant makes
 
 Adding people, notes, and records, changing profile fields and records, converting a record to another kind, archiving, and moving a note are written to Room as soon as the assistant makes them, each tool call in its own transaction. Every such write is listed under the reply that made it, and **Undo** puts all of them back together. Undo refuses rather than overwrite anything edited after the reply, and refuses to remove a person or note the reply created once other records depend on it. The record of what to undo lives only in memory with the thread.
 
 Deleting a person, note, or record and merging two people are never written by the assistant. They are shown on a card under the reply and run only when the user confirms them there. They cannot be undone afterwards; restoring an earlier encrypted backup is the only way back.
 
-Notes the assistant saves are marked as saved by the assistant. Missing configuration, rejected requests, timeouts, quota limits, and offline failures stop the turn and are shown in the thread; anything already saved before the failure stays listed with its undo.
+Notes the assistant saves are marked as saved by the assistant, or as found on the web by it. Missing configuration, rejected requests, timeouts, quota limits, and offline failures stop the turn and are shown in the thread; anything already saved before the failure stays listed with its undo.
 
 ## Conversation history
 
@@ -44,7 +58,7 @@ To answer a question, the assistant reads records through the same tool calls de
 
 ## Reported assistant answers
 
-Reporting a wrong answer stores a copy of your message, the assistant's answer, what the reply saved or queued, and the tool calls it made, in a local database table. Nothing is transmitted when a report is saved. Contact values are never copied into a report: a tool call that set a contact value is recorded without the value.
+Reporting a wrong answer stores a copy of your message, the assistant's answer, what the reply saved or queued, and the tool calls it made, including its web searches and page addresses, in a local database table. Nothing is transmitted when a report is saved. Contact values are never copied into a report: a tool call that set a contact value is recorded without the value.
 
 Reports are included in the encrypted GitHub backup, alongside people and their records and under the same AES-256-GCM encryption and passphrase. They leave the phone only when a backup runs, and only to the private repository you configured; the app still refuses to back up to a public repository. Nothing about a report is sent to the AI gateway.
 
@@ -58,7 +72,7 @@ The access token is entered after installation and stored in Android encrypted p
 
 The development-only live test uses the same encrypted preferences: the token is saved once through the app's Settings screen and read from there at runtime. No copy is written to `.env`, staged on the device filesystem, or passed as a Gradle or command-line argument, and the test exercises only synthetic records. The token must never appear in source, Gradle arguments, command text, test reports, screenshots, or diagnostic UI dumps. `.env` and `.env.*` remain gitignored.
 
-Request content is processed by the gateway operator and then by Anthropic under their respective terms and retention policies. The gateway is a small self-hosted service rather than a published vendor, so its logging and retention are the operator's responsibility. Do not submit network information that the user is unwilling or unauthorized to send to those parties.
+Request content is processed by the gateway operator and then by Anthropic under their respective terms and retention policies; web search queries are also handled by the search provider behind Anthropic's web search, and the sites whose pages are read receive those requests from the gateway. The gateway is a small self-hosted service rather than a published vendor, so its logging and retention are the operator's responsibility. Do not submit network information that the user is unwilling or unauthorized to send to those parties.
 
 ## Failure and deletion
 

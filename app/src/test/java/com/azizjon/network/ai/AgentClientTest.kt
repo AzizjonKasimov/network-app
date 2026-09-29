@@ -32,6 +32,46 @@ class AgentClientTest {
         assertEquals("Saved it.", event.text)
         assertEquals(3, event.toolCalls)
         assertEquals(7726L, event.durationMs)
+        assertEquals(emptyList<WebLookup>(), event.web)
+    }
+
+    @Test
+    fun aFinishedTurnListsWhatItLookedUpAndSkipsWhatItCannotRead() {
+        val event = AgentClient.parseEvent(
+            """{"turn_id":"$turn","status":"done","text":"Found them.","tool_calls":2,"duration_ms":1,"web":[
+                {"kind":"search","target":"Synthetic Person Lumen Labs","ok":true},
+                {"kind":"fetch","target":"https://www.linkedin.com/in/synthetic-person/","ok":false},
+                {"kind":"fetch","target":"https://lumen.example/team","ok":true},
+                {"kind":"teleport","target":"x","ok":true},
+                {"kind":"search","target":"  "},
+                "not an object"
+            ]}""",
+        ) as AgentEvent.Done
+
+        assertEquals(
+            listOf(
+                "Searched the web for “Synthetic Person Lumen Labs”",
+                "Could not open linkedin.com/in/synthetic-person",
+                "Read lumen.example/team",
+            ),
+            event.web.map { it.line },
+        )
+    }
+
+    @Test
+    fun aQueryWithItsOwnQuotesIsNotWrappedInMore() {
+        // The shape of query the model sent in the live check.
+        val lookup = WebLookup(WebLookup.Kind.SEARCH, "\"Dana Whitfield\" Lumen Labs Berlin", ok = true)
+
+        assertEquals("Searched the web for \"Dana Whitfield\" Lumen Labs Berlin", lookup.line)
+    }
+
+    @Test
+    fun aLongAddressIsShortenedOnTheCard() {
+        val lookup = WebLookup(WebLookup.Kind.PAGE, "https://example.com/" + "a".repeat(100), ok = true)
+
+        assertEquals(65, lookup.line.length)
+        assertTrue(lookup.line.startsWith("Read example.com/aaa") && lookup.line.endsWith("…"))
     }
 
     @Test

@@ -31,7 +31,36 @@ sealed interface AgentEvent {
         val text: String,
         val toolCalls: Int,
         val durationMs: Long,
+        /** What the turn looked up on the web, which ran on the gateway rather than here. */
+        val web: List<WebLookup> = emptyList(),
     ) : AgentEvent
+}
+
+/**
+ * One web search or page read in a turn. These run on the gateway, so the
+ * phone learns of them only from the finished reply.
+ */
+data class WebLookup(val kind: Kind, val target: String, val ok: Boolean) {
+    enum class Kind { SEARCH, PAGE }
+
+    /** How the reply's card lists it. */
+    val line: String
+        get() = when {
+            // A query with its own quoted phrase reads badly inside another pair.
+            kind == Kind.SEARCH && '"' in target -> "Searched the web for $target"
+            kind == Kind.SEARCH -> "Searched the web for “$target”"
+            ok -> "Read ${shortAddress(target)}"
+            else -> "Could not open ${shortAddress(target)}"
+        }
+
+    private fun shortAddress(address: String): String {
+        val bare = address.substringAfter("://").removePrefix("www.").trimEnd('/')
+        return if (bare.length > MAX_ADDRESS) bare.take(MAX_ADDRESS - 1) + "…" else bare
+    }
+
+    private companion object {
+        const val MAX_ADDRESS = 60
+    }
 }
 
 /**
@@ -45,7 +74,8 @@ class AgentClient(private val tokenProvider: () -> String?) {
     val configured: Boolean
         get() = !tokenProvider().isNullOrBlank()
 
-    suspend fun start(system: String, input: String, tools: JSONArray, maxSteps: Int): AgentEvent =
+    /** [web] lets Claude search the web and read pages on the gateway during the turn. */
+    suspend fun start(system: String, input: String, tools: JSONArray, maxSteps: Int, web: Boolean): AgentEvent =
         parseEvent(
             post(
                 "$GATEWAY_BASE_URL/v1/agent/turns",
@@ -53,7 +83,8 @@ class AgentClient(private val tokenProvider: () -> String?) {
                     .put("system", system)
                     .put("input", input)
                     .put("tools", tools)
-                    .put("max_steps", maxSteps),
+                    .put("max_steps", maxSteps)
+                    .apply { if (web) put("web", true) },
             ),
         )
 
@@ -122,6 +153,10 @@ class AgentClient(private val tokenProvider: () -> String?) {
         const val MAX_RESPONSE_BYTES = 256 * 1024
         const val CONNECT_TIMEOUT_MILLIS = 15_000
 
+        /** More than the gateway allows in one turn; the rest would only be noise on the card. */
+        private const val MAX_WEB_LOOKUPS = 30
+        private const val MAX_WEB_TARGET = 500
+
         /** One model step, which can be a long reply. Caddy gives up at 180 s. */
         const val READ_TIMEOUT_MILLIS = 170_000
 
@@ -152,8 +187,24 @@ class AgentClient(private val tokenProvider: () -> String?) {
                     text = json.optString("text").trim(),
                     toolCalls = json.optInt("tool_calls"),
                     durationMs = json.optLong("duration_ms"),
+                    web = parseWeb(json.optJSONArray("web")),
                 )
                 else -> throw GatewayException("The assistant returned an unreadable response.")
+            }
+        }
+
+        /** The turn's web lookups. An entry the phone cannot read is skipped rather than failing the reply. */
+        private fun parseWeb(array: JSONArray?): List<WebLookup> {
+            if (array == null) return emptyList()
+            return (0 until minOf(array.length(), MAX_WEB_LOOKUPS)).mapNotNull { index ->
+                val item = array.optJSONObject(index) ?: return@mapNotNull null
+                val kind = when (item.optString("kind")) {
+                    "search" -> WebLookup.Kind.SEARCH
+                    "fetch" -> WebLookup.Kind.PAGE
+                    else -> return@mapNotNull null
+                }
+                val target = item.optString("target").trim().take(MAX_WEB_TARGET)
+                if (target.isEmpty()) null else WebLookup(kind, target, item.optBoolean("ok", false))
             }
         }
 

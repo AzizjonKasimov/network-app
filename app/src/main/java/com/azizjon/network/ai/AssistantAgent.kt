@@ -39,6 +39,8 @@ class AssistantAgent(
                 input = AssistantPrompt.input(message, history, clock(), zone(), Locale.getDefault().toLanguageTag()),
                 tools = tools.definitions(),
                 maxSteps = AgentClient.MAX_STEPS,
+                // Always offered; the prompt limits it to lookups the user asks for.
+                web = true,
             )
             turnId = event.turnId
             while (event is AgentEvent.ToolCall) {
@@ -48,6 +50,7 @@ class AssistantAgent(
                 event = client.submit(call.turnId, call.callId, result.output, result.isError)
             }
             val done = event as AgentEvent.Done
+            log.web += done.web
             AgentOutcome(
                 reply = PlainReply.from(done.text).ifBlank { if (log.saved.isEmpty()) "Done." else "Saved." },
                 log = log,

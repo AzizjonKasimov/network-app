@@ -42,10 +42,11 @@ object EncryptedBackupCodec {
      * Shape of the decrypted payload. Bumped whenever a list is added, or a value
      * appears that an older version would reject or silently drop: 6 adds the
      * assistant note origin, so an older app says the backup is too new instead
-     * of calling it damaged, and 7 adds when the user helped with a need, which
-     * an older app would restore as never helped.
+     * of calling it damaged, 7 adds when the user helped with a need, which
+     * an older app would restore as never helped, and 8 adds the web note
+     * origin for the same reason as 6.
      */
-    internal const val SCHEMA_VERSION = 7
+    internal const val SCHEMA_VERSION = 8
 
     /** A sane ceiling so a damaged backup cannot flood the table on restore. */
     private const val MAX_FEEDBACK_ROWS = 5_000

@@ -23,6 +23,8 @@ sealed interface ChatAttachment {
         val undone: Boolean = false,
         /** Why undo refused, once it has. */
         val undoError: String? = null,
+        /** One line per web search or page read, so the user sees exactly what went out. */
+        val web: List<String> = emptyList(),
     ) : ChatAttachment {
         val canUndo: Boolean get() = changes.isNotEmpty() && !undone && undoError == null
     }

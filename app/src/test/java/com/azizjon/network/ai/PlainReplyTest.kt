@@ -47,6 +47,40 @@ class PlainReplyTest {
     }
 
     @Test
+    fun linksKeepTheirTextAndAClosingSourceListIsDropped() {
+        // The shape the web search tool asks for, seen in a live trial.
+        val reply = """
+            I saved a note on Synthetic Person: they advise [Lumen Labs](https://lumen.example/team) and studied at
+            Sample University ([their page](https://en.wikipedia.org/wiki/Sample_(university))).
+
+            **Sources:**
+            - [Lumen Labs team](https://lumen.example/team)
+            - [Sample University](https://en.wikipedia.org/wiki/Sample_(university))
+        """.trimIndent()
+
+        assertEquals(
+            """
+            I saved a note on Synthetic Person: they advise Lumen Labs and studied at
+            Sample University (their page).
+            """.trimIndent(),
+            PlainReply.from(reply),
+        )
+        assertEquals(
+            "Synthetic Person runs a studio.",
+            PlainReply.from("Synthetic Person runs a studio.\n\nSources: [Studio](https://studio.example/), [Talk](https://talks.example/a)"),
+        )
+    }
+
+    @Test
+    fun sourcesThatAreNotAClosingListStay() {
+        listOf(
+            "Sources: the user said so.",
+            "Sources:\n- the user\nThen they joined Lumen Labs.",
+            "Their funding sources are grants and angels.",
+        ).forEach { reply -> assertEquals(reply, PlainReply.from(reply)) }
+    }
+
+    @Test
     fun marksThatAreNotFormattingStay() {
         listOf(
             "Tomas rated it 5 * 3 = 15.",

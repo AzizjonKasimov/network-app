@@ -37,6 +37,27 @@ data class NetworkSnapshot(
     /** A one-line summary of where someone works now, for cards and lists. */
     fun affiliationSummary(personId: Long): String =
         currentAffiliationsFor(personId).filterNot { it.isEducation }.joinToString(" · ") { it.label }
+
+    /**
+     * A few words on who each person is, for telling people apart in a long
+     * list where a name alone is not enough: what they do now (their study
+     * when they hold no job), where they are, and how the user knows them.
+     * Empty for someone with none of those saved.
+     */
+    fun identityLines(): Map<Long, String> {
+        val current = affiliations.filter { it.current }.groupBy { it.personId }
+        return people.associate { person ->
+            val (study, work) = current[person.id].orEmpty().partition { it.isEducation }
+            val doing = if (work.isNotEmpty()) work.map { it.label } else study.map(::studyLabel)
+            person.id to (doing + person.location + person.relationship)
+                .map(String::trim)
+                .filter(String::isNotEmpty)
+                .joinToString(" · ")
+        }
+    }
+
+    private fun studyLabel(item: AffiliationEntity): String =
+        if (item.role.isBlank()) "Studying at ${item.organization}" else "Studying ${item.label}"
 }
 
 class NetworkRepository(private val dao: NetworkDao) {

@@ -309,6 +309,57 @@ class AssistantToolsInstrumentedTest {
         assertTrue(read.getBoolean("has_contact"))
     }
 
+    @Test
+    fun aWebLookupIsSavedAsAWebNoteWithItsPagesAndReadBackAsSuch() = runBlocking {
+        val log = AgentTurnLog()
+        val personId = ok(log, "create_person", JSONObject().put("name", "Priya Raman")).getLong("person_id")
+        val result = ok(
+            log,
+            "add_note",
+            JSONObject()
+                .put("person_id", personId)
+                .put("text", "Advisor at Lumen Labs, based in Berlin.")
+                .put("sources", JSONArray().put("https://lumen.example/team").put("lumen.example/team/priya").put("https://lumen.example/team"))
+                .put("records", JSONArray().put(JSONObject().put("kind", "position").put("organization", "Lumen Labs").put("role", "Advisor"))),
+        )
+
+        val note = store.snapshot().interactions.single()
+        assertEquals(InteractionEntity.ORIGIN_WEB, note.origin)
+        assertEquals(
+            "a repeated page is listed once",
+            "Advisor at Lumen Labs, based in Berlin.\n\nSources:\n- https://lumen.example/team\n- lumen.example/team/priya",
+            note.note,
+        )
+        assertEquals(note.id, store.snapshot().affiliations.single().sourceInteractionId)
+        assertEquals(1, result.getJSONArray("records").length())
+        assertTrue(log.saved.contains("Saved what the web says about Priya Raman"))
+
+        val read = ok(AgentTurnLog(), "get_person", JSONObject().put("person_id", personId))
+        assertTrue(read.getJSONArray("notes").getJSONObject(0).getBoolean("from_web"))
+        val found = ok(AgentTurnLog(), "search_notes", JSONObject().put("query", "Lumen"))
+        assertTrue(found.getJSONArray("notes").getJSONObject(0).getBoolean("from_web"))
+
+        // A note about what the user said carries no sources and no marker.
+        ok(log, "add_note", JSONObject().put("person_id", personId).put("text", "Priya asked about bookkeepers."))
+        val plain = ok(AgentTurnLog(), "search_notes", JSONObject().put("query", "bookkeepers")).getJSONArray("notes").getJSONObject(0)
+        assertFalse(plain.has("from_web"))
+    }
+
+    @Test
+    fun sourcesMustBePageAddresses() = runBlocking {
+        val log = AgentTurnLog()
+        val personId = ok(log, "create_person", JSONObject().put("name", "Tomas Reyes")).getLong("person_id")
+
+        val reason = error(
+            log,
+            "add_note",
+            JSONObject().put("person_id", personId).put("text", "Runs a studio.").put("sources", JSONArray().put("their LinkedIn page")),
+        )
+
+        assertTrue(reason.contains("is not a web address"))
+        assertTrue("a refused note writes nothing", store.snapshot().interactions.isEmpty())
+    }
+
     private suspend fun ok(log: AgentTurnLog, name: String, input: JSONObject): JSONObject {
         val result = tools.execute(name, input, log)
         assertFalse("$name failed: ${result.output}", result.isError)

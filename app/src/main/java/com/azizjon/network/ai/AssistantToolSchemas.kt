@@ -123,7 +123,7 @@ object AssistantToolSchemas {
   },
   {
     "name": "add_note",
-    "description": "Saves a dated note on a person: what the user learned or discussed, in the user's words. Pass the records the note supports in records, and they are saved with it, linked to it, in the same call. A record that cannot be saved, usually because the person already has it, is listed under skipped with the reason while the rest are saved.",
+    "description": "Saves a dated note on a person: what the user learned or discussed, in the user's words, or what a web lookup found, with its pages in sources. Pass the records the note supports in records, and they are saved with it, linked to it, in the same call. A record that cannot be saved, usually because the person already has it, is listed under skipped with the reason while the rest are saved.",
     "input_schema": {
       "type": "object",
       "required": ["person_id", "text"],
@@ -131,6 +131,12 @@ object AssistantToolSchemas {
         "person_id": { "type": "integer" },
         "text": { "type": "string", "minLength": 1, "maxLength": 4000 },
         "date": { "type": "string", "description": "When it happened, YYYY-MM-DD. Default today." },
+        "sources": {
+          "type": "array",
+          "maxItems": 10,
+          "items": { "type": "string", "maxLength": 500 },
+          "description": "Only for what a web lookup found: the addresses of the pages it came from. The note is then marked as found on the web. Leave it out for anything the user told you."
+        },
         "records": {
           "type": "array",
           "maxItems": 20,

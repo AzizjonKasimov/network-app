@@ -183,7 +183,7 @@ class AssistantTools(
             .put(
                 "notes",
                 JSONArray(notes.take(limit).map { note ->
-                    JSONObject().put("id", note.id).put("date", formatToolDate(note.occurredAt, zone)).put("text", note.note)
+                    JSONObject().put("id", note.id).put("date", formatToolDate(note.occurredAt, zone)).put("text", note.note).markWeb(note)
                 }),
             )
     }
@@ -250,6 +250,7 @@ class AssistantTools(
                 .put("person", index.people[note.personId]?.name.orEmpty())
                 .put("date", formatToolDate(note.occurredAt, zone))
                 .put("text", note.note.take(MAX_NOTE_EXCERPT))
+                .markWeb(note)
         }
         return JSONObject().put("total", notes.size).put("notes", rows).putOpt("next_offset", next)
     }
@@ -333,6 +334,7 @@ class AssistantTools(
         val personId = input.requiredLong("person_id")
         val person = store.person(personId) ?: throw noPerson(personId)
         val text = input.requiredText("text", 4_000)
+        val sources = readSources(input)
         val now = clock()
         val occurredAt = parseToolDate(input.optionalText("date", 40), zone(), now) ?: now.toEpochMilli()
 
@@ -355,14 +357,16 @@ class AssistantTools(
             }
         }
 
+        val fromWeb = sources.isNotEmpty()
         val (note, refs) = write(log) { recorder ->
             val saved = recorder.insertNote(
                 InteractionEntity(
                     personId = personId,
-                    note = text,
+                    // The pages stay with what they said, readable on the person screen.
+                    note = if (fromWeb) text + "\n\nSources:\n" + sources.joinToString("\n") { "- $it" } else text,
                     occurredAt = occurredAt,
                     createdAt = now.toEpochMilli(),
-                    origin = InteractionEntity.ORIGIN_ASSISTANT,
+                    origin = if (fromWeb) InteractionEntity.ORIGIN_WEB else InteractionEntity.ORIGIN_ASSISTANT,
                 ),
             )
             val created = accepted.map { record -> record to insertRecord(recorder, personId, record, now.toEpochMilli(), saved.id) }
@@ -370,8 +374,8 @@ class AssistantTools(
             saved to created
         }
         log.people += personId
-        log.saved += "Saved a note on ${person.name}"
-        log.memory += "added note ${note.id} to ${person.name} (person $personId)"
+        log.saved += if (fromWeb) "Saved what the web says about ${person.name}" else "Saved a note on ${person.name}"
+        log.memory += "added ${if (fromWeb) "web note" else "note"} ${note.id} to ${person.name} (person $personId)"
         refs.forEach { (record, ref) ->
             log.saved += "Added ${record.kind.withArticle()} for ${person.name}: ${record.display}"
             log.memory += "added $ref to ${person.name} (person $personId)"
@@ -446,6 +450,16 @@ class AssistantTools(
             normalizeText(text) == normalizeText(other.text) &&
             organization.equals(other.organization, ignoreCase = true) &&
             role.equals(other.role, ignoreCase = true)
+    }
+
+    /** The pages a web lookup came from. Empty for a note about what the user said. */
+    private fun readSources(input: JSONObject): List<String> {
+        val sources = input.optionalStrings("sources")?.distinct().orEmpty()
+        if (sources.size > MAX_SOURCES) throw ToolFailure("Pass at most $MAX_SOURCES sources.")
+        sources.firstOrNull { it.length > MAX_SOURCE_LENGTH || !WEB_ADDRESS.matches(it) }?.let { bad ->
+            throw ToolFailure("\"${bad.take(80)}\" is not a web address. sources takes only the addresses of pages the lookup used.")
+        }
+        return sources
     }
 
     private fun readNewRecord(input: JSONObject, now: Instant, defaultConfirmed: Long): NewRecord {
@@ -935,6 +949,11 @@ class AssistantTools(
         const val DEFAULT_NOTES = 20L
         const val MAX_NOTE_EXCERPT = 1_500
         const val MAX_RECORDS_PER_NOTE = 20
+        const val MAX_SOURCES = 10
+        const val MAX_SOURCE_LENGTH = 500
+
+        /** An address with or without its scheme: "lumen.example/team" as well as "https://lumen.example/team". */
+        val WEB_ADDRESS = Regex("""^(?:https?://)?[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+(?::\d{1,5})?(?:[/?#]\S*)?$""", RegexOption.IGNORE_CASE)
 
         /** Well under what Claude Code accepts from one tool call. */
         const val PAGE_CHARACTERS = 40_000
@@ -951,6 +970,10 @@ private fun RecordKind.withArticle(): String = when (this) {
 
 /** Case and punctuation aside, the same words. */
 private fun normalizeText(value: String): String = value.lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
+
+/** Tells the assistant a note holds what a web lookup found, not what the user said. */
+private fun JSONObject.markWeb(note: InteractionEntity): JSONObject =
+    apply { if (note.origin == InteractionEntity.ORIGIN_WEB) put("from_web", true) }
 
 private fun List<String>.joinToEnglish(): String = when (size) {
     0 -> ""

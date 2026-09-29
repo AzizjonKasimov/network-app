@@ -73,6 +73,8 @@ class AssistantLiveInstrumentedTest {
             }
             assertFalse("Volunteering came back as education: '$studyText'", studyText.contains("Shelter", ignoreCase = true))
             assertTrue("The conversation should be kept as a note", afterCapture.interactionsFor(marta.id).isNotEmpty())
+            // The web is offered on every turn but used only when the user asks.
+            assertTrue("A capture must not look anyone up, got ${capture.log.web}", capture.log.web.isEmpty())
             Log.i(TAG, "capture: ${work.size} work, ${study.size} study, ${afterCapture.factsFor(marta.id).size} facts")
 
             // One message, two saved people.
@@ -88,6 +90,7 @@ class AssistantLiveInstrumentedTest {
             // A question reads and answers, and writes nothing.
             val question = liveTurn(agent, "question", "Who could introduce me to seed investors?")
             assertTrue("A question must not write anything", question.log.changes.isEmpty())
+            assertTrue("A question about the network must not go to the web, got ${question.log.web}", question.log.web.isEmpty())
             assertTrue("Dana should be named, reply was: ${question.reply}", question.reply.orEmpty().contains("Dana"))
 
             // A delete only ever queues for the user.

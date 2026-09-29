@@ -30,6 +30,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.azizjon.network.data.NeedEntity
 import com.azizjon.network.data.NeedItem
@@ -54,6 +55,7 @@ fun NeedsScreen(
 ) {
     var stage by rememberSaveable { mutableStateOf(NeedStage.TO_HELP) }
     val board = remember(snapshot) { snapshot.needsByStage() }
+    val identities = remember(snapshot) { snapshot.identityLines() }
     val shown = board.getValue(stage)
 
     Scaffold(
@@ -94,6 +96,7 @@ fun NeedsScreen(
                     items(shown, key = { it.need.id }) { item ->
                         NeedCard(
                             item = item,
+                            identity = identities[item.person.id].orEmpty(),
                             onOpen = { onOpenPerson(item.person.id) },
                             onSetHelped = { helped -> onSetHelped(item.need, helped) },
                             onSetActive = { active -> onSetActive(item.need, active) },
@@ -116,6 +119,8 @@ private val NeedStage.label: String
 @Composable
 private fun NeedCard(
     item: NeedItem,
+    /** Who the person is, so a name the user has lost track of still means something. */
+    identity: String,
     onOpen: () -> Unit,
     onSetHelped: (Boolean) -> Unit,
     onSetActive: (Boolean) -> Unit,
@@ -133,6 +138,16 @@ private fun NeedCard(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
+            if (identity.isNotEmpty()) {
+                Text(
+                    identity,
+                    modifier = Modifier.padding(end = 8.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             helpedLabel(item.need)?.let {
                 Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }

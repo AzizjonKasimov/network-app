@@ -11,7 +11,8 @@ The first native Android version includes:
 - keep background facts that are not a need, a capability, a position, or education as their own dated, editable records;
 - mark a profile as the user's own profile for reciprocal matching;
 - record dated interactions, needs/goals, and capabilities/resources;
-- a **Needs** tab listing what everyone else in the network is trying to solve or get, with the ones you have not helped with yet up front;
+- a **Needs** tab listing what everyone else in the network is trying to solve or get, with the ones you have not helped with yet up front, each saying who the person is;
+- looking someone up on the web when you ask or send a link, saved as a note marked as found on the web, with the pages it came from;
 - private on-device matching across profile fields and linked records;
 - a single chat thread where an agent answers any question about the network and records what the user tells it, across several people in one message;
 - changes the assistant saves land immediately and can be undone together from its reply;
@@ -34,7 +35,7 @@ Manual editing and local matching remain fully available without the gateway or 
 
 ## Needs
 
-The **Needs** tab gathers every open need or goal saved on the people in your network into one list, so you can scan for something you could help with without opening each person. Your own profile's needs and archived people are left out. Each card shows the need, who has it, and its date; tap it to open that person.
+The **Needs** tab gathers every open need or goal saved on the people in your network into one list, so you can scan for something you could help with without opening each person. Your own profile's needs and archived people are left out. Each card shows the need, who has it, and its date, then a line on who they are: what they do now (their study when they hold no job), where they are, and how you know them. Tap a card to open that person. When a name still means nothing, ask the assistant to look them up (below).
 
 Needs sit in three lists:
 
@@ -58,7 +59,21 @@ It can:
 
 - answer questions about the network: who could help with something, what was last discussed with someone, who works where, who has not come up in a while;
 - record what you tell it on every person a message concerns, keeping your words as a note and the facts it states as positions, education, needs, capabilities, or background records linked to that note;
-- update, close, or re-date records, turn a record into the right kind, move a note to the person it belongs to, create people, change profile fields, and archive or restore someone.
+- update, close, or re-date records, turn a record into the right kind, move a note to the person it belongs to, create people, change profile fields, and archive or restore someone;
+- look someone up on the web when you ask.
+
+### Looking people up on the web
+
+Ask the assistant to look someone up ("Look up Priya Raman online") or send it a link, such as a LinkedIn profile or a company's team page. It searches the web and reads pages, then saves who the person is:
+- a note in its own words, marked **Found on the web by the assistant**, ending with the pages it used;
+- the positions, education, and background those pages support, each marked **from the web**;
+- their location, if none is saved yet.
+
+The card under the reply lists every search and page, including pages it could not open.
+
+It goes to the web only when a message asks it to. A search carries the person's name and a few details that tell them apart, such as their company or city, never anything else from your records. Searches run through Anthropic's web search, and the gateway fetches the pages, so sites see the gateway's address, not your phone's. The gateway opens only pages you linked or that a search or page turned up, never an address the model wrote itself, so a planted page cannot get your records sent out inside a link.
+
+When a result could be a different person with the same name, it saves nothing and asks you to confirm or send a link. It never saves contact details, family, health, beliefs, or other private details it finds, and what you told it outranks what a page says. LinkedIn refuses automated page reads, so for a LinkedIn link it relies on what search results show about the profile, usually the headline, current company, and location.
 
 Everything it saves lands immediately and is listed under its reply with one **Undo** for the whole reply. Undo refuses rather than overwrite anything edited since, including a person the reply created who has since gained notes or records of their own.
 
@@ -108,7 +123,7 @@ The loop is: label bad answers as they happen, back up, fix the faults, delete t
 
 Network data is sensitive third-party personal information. Android automatic cloud backup is disabled, and real records must never enter source control, tests, screenshots, logs, development prompts, or release artifacts.
 
-Gateway requests are an explicit exception chosen by the user. Each message sends the message, the bounded history described above, and then whatever records the assistant's tool calls read, never contact values. See [PRIVACY.md](PRIVACY.md) for the exact boundary. A token stored by a mobile app can be recovered from a rooted or otherwise compromised device, so issue one token per device and revoke it on the gateway if that device is lost.
+Gateway requests are an explicit exception chosen by the user. Each message sends the message, the bounded history described above, and then whatever records the assistant's tool calls read, never contact values. A web lookup you ask for also sends the person's name and a few identifying details to a web search, and the gateway fetches the pages. See [PRIVACY.md](PRIVACY.md) for the exact boundary. A token stored by a mobile app can be recovered from a rooted or otherwise compromised device, so issue one token per device and revoke it on the gateway if that device is lost.
 
 Speech input is separate from the gateway. On-device recognition keeps audio with the device recognition service. If the user accepts the disclosed fallback, Android's configured speech provider may transmit audio under that provider's terms; the fallback consent lasts only until the Network App process restarts.
 
@@ -142,7 +157,7 @@ For an explicitly authorized live gateway check, save the access token once on t
 .\scripts\test-gateway-live.ps1
 ```
 
-The script never handles the token. It is read at runtime from the app's own encrypted preferences, so it is never passed through `.env`, a file staged on the device, Gradle arguments, command text, or test reports. The run drives real agent turns against the production gateway - a capture mixing work, study, and volunteering, a two-person update, a question, a delete request, and an undo - with synthetic records in an in-memory database.
+The script never handles the token. It is read at runtime from the app's own encrypted preferences, so it is never passed through `.env`, a file staged on the device, Gradle arguments, command text, or test reports. The run drives real agent turns against the production gateway - a capture mixing work, study, and volunteering, a two-person update, a question, a delete request, and an undo - with synthetic records in an in-memory database. Every turn is offered the web, and the run fails if the capture or the question goes to it, since neither asks for a lookup. A lookup itself is checked by hand: a synthetic person cannot be found online, and a real one does not belong in tracked tests.
 
 The script installs the app and instrumentation APKs and then drives `am instrument` directly, rather than using `connectedDebugAndroidTest`. That Gradle task uninstalls the app when it finishes, which erases the saved token and forces it to be entered again before every run. Ordinary offline test runs skip this opt-in provider test.
 
@@ -183,10 +198,11 @@ The script verifies the active GitHub account and repository visibility, prevent
 - Repository boundary and state-flow presentation with simple application-owned dependency wiring.
 - Local deterministic matching in `NetworkMatcher`, reachable without AI from the **People** tab.
 - Re-filing a misfiled note in `NetworkDao.moveInteraction`, a single transaction that re-points the interaction and every record carrying its id, creating the destination person when the note belongs to somebody not yet saved. The assistant's `move_note` tool uses the same transaction.
-- The agent in `ai`: `AssistantAgent` runs a turn, `AgentClient` speaks the gateway's `/v1/agent/turns` protocol, `AssistantTools` executes each tool call against Room, and `AssistantPrompt` holds the instructions and replayed history. Conversation state is in `ChatModels`. `PlainReply` takes out the markdown Claude sometimes writes despite the prompt, before a reply enters the thread, so the thread, replayed history, and reports carry the same plain text.
+- The agent in `ai`: `AssistantAgent` runs a turn, `AgentClient` speaks the gateway's `/v1/agent/turns` protocol, `AssistantTools` executes each tool call against Room, and `AssistantPrompt` holds the instructions and replayed history. Conversation state is in `ChatModels`. `PlainReply` takes out the markdown Claude sometimes writes despite the prompt, before a reply enters the thread, so the thread, replayed history, and reports carry the same plain text. It also turns links into their text and drops the closing list of sources that web search asks for, since the card lists the pages.
+- Web lookups run on the gateway (`"web": true` on every turn), not as phone tools. The finished reply lists each search and page as a `WebLookup`, and `add_note` with `sources` saves the result as a `web`-origin note whose records the person screen marks as from the web. The Needs cards' who-is-this line is `NetworkSnapshot.identityLines()`.
 - `AssistantStore` writes through a `ChangeRecorder` that keeps every row's before and after image. That is what lets one reply be undone as a whole, and lets undo detect anything edited since instead of overwriting it. Deletes and merges are separate store methods that only a confirmation card calls.
 - Lifecycle-managed Android speech recognition with on-device preference and a disclosed session-only fallback.
 - Encrypted backup codec separated from the GitHub transport.
 - Feedback capture and response flattening in `feedback`, kept free of Android types so both are unit-tested.
-- `BackupPayload` carries reported answers beside the snapshot rather than inside it, so diagnostic rows never reach the screens or the assistant's tools. Backup schema 5 adds them; backups written earlier restore with none. Schema 6 adds the `assistant` note origin, so an older app reports a newer backup as unsupported rather than damaged.
+- `BackupPayload` carries reported answers beside the snapshot rather than inside it, so diagnostic rows never reach the screens or the assistant's tools. Backup schema 5 adds them; backups written earlier restore with none. Schema 6 adds the `assistant` note origin, so an older app reports a newer backup as unsupported rather than damaged, and schema 8 adds the `web` origin for the same reason. Room itself stays at version 7: an origin is a text column.
 - No backend, account, analytics, telemetry, contact scraping, automatic address-book import, autonomous outreach, or deletion without confirmation.

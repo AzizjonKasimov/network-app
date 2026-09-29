@@ -126,7 +126,8 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
-                        "It reads only what a request needs, through the gateway to Anthropic. Contact values never leave this phone.",
+                        "It reads only what a request needs, through the gateway to Anthropic, and searches the web only when you " +
+                            "ask it to look someone up. Contact values never leave this phone.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     if (gatewaySettingsState.assistantConsent) {

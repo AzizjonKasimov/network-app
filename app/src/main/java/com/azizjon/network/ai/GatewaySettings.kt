@@ -6,7 +6,10 @@ import androidx.security.crypto.MasterKey
 
 data class GatewaySettingsState(
     val tokenSaved: Boolean = false,
-    /** The user accepted that the assistant reads whatever records it needs. */
+    /**
+     * The user accepted that the assistant reads whatever records it needs,
+     * and looks people up on the web when asked to.
+     */
     val assistantConsent: Boolean = false,
 )
 
@@ -35,11 +38,11 @@ class GatewaySettings(context: Context) {
             context.deleteSharedPreferences(LEGACY_SECRET_PREFERENCES_NAME)
             context.deleteSharedPreferences(LEGACY_PREFERENCES_NAME)
         }
-        // The old consent covered searches sending the network. The assistant now
-        // reads any record whenever it decides to, which is a different promise,
-        // so it is asked for again rather than carried over.
-        if (preferences.contains(LEGACY_KEY_SEARCH_CONSENT)) {
-            preferences.edit().remove(LEGACY_KEY_SEARCH_CONSENT).apply()
+        // Each older consent was a narrower promise: searches sending the network,
+        // then the assistant reading records but never the web. Looking people up
+        // sends names to a web search, so it is asked for again, not carried over.
+        LEGACY_CONSENT_KEYS.filter(preferences::contains).takeIf { it.isNotEmpty() }?.let { stale ->
+            preferences.edit().apply { stale.forEach(::remove) }.apply()
         }
     }
 
@@ -74,8 +77,10 @@ class GatewaySettings(context: Context) {
         private const val PREFERENCES_NAME = "gateway_settings"
         private const val SECRET_PREFERENCES_NAME = "gateway_credentials"
         private const val KEY_TOKEN = "token"
-        private const val KEY_ASSISTANT_CONSENT = "assistant_consent"
-        private const val LEGACY_KEY_SEARCH_CONSENT = "full_network_search_consent"
+        private const val KEY_ASSISTANT_CONSENT = "assistant_web_consent"
+
+        /** Consents to narrower promises, oldest first. */
+        private val LEGACY_CONSENT_KEYS = listOf("full_network_search_consent", "assistant_consent")
 
         private const val LEGACY_PREFERENCES_NAME = "gemini_settings"
         private const val LEGACY_SECRET_PREFERENCES_NAME = "gemini_credentials"

@@ -203,6 +203,18 @@ class EncryptedBackupCodecTest {
         assertThrows(BackupCodecException::class.java) { EncryptedBackupCodec.payloadFromJson(tampered.toString()) }
     }
 
+    @Test
+    fun webLookupNotesRoundTripAndAnOlderAppIsToldTheBackupIsTooNew() {
+        val lookup = InteractionEntity(9, 1, "Runs a sample studio.\n\nSources:\n- https://studio.example/team", 3, 4, InteractionEntity.ORIGIN_WEB)
+        val snapshot = sampleSnapshot().let { it.copy(interactions = it.interactions + lookup) }
+        val json = EncryptedBackupCodec.payloadToJson(BackupPayload(snapshot))
+
+        assertEquals(lookup, EncryptedBackupCodec.payloadFromJson(json).snapshot.interactions.single { it.id == 9L })
+        // A web note is a value version 7 would reject, so the payload says 8
+        // and version 7 refuses it as unsupported rather than damaged.
+        assertEquals(8, JSONObject(json).getInt("schemaVersion"))
+    }
+
     private fun sampleSnapshot(): NetworkSnapshot {
         val person = PersonEntity(id = 1, name = "Sample Person", createdAt = 1, updatedAt = 2)
         return NetworkSnapshot(

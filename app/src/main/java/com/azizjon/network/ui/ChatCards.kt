@@ -32,6 +32,7 @@ import com.azizjon.network.data.NetworkSnapshot
  * that filed a note on the wrong person usually got several things wrong at
  * once. Deletes and merges are listed separately and wait for a tap: they are
  * the changes Undo could not take back, so they never happen on their own.
+ * Web lookups come first, because they are what left the phone for the web.
  */
 @Composable
 fun AgentResultCard(
@@ -45,6 +46,10 @@ fun AgentResultCard(
 ) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (result.web.isNotEmpty()) {
+                Text("Looked up online", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                result.web.forEach { line -> Text("• $line", style = MaterialTheme.typography.bodySmall) }
+            }
             if (result.saved.isNotEmpty()) {
                 Text(
                     if (result.undone) "Undone" else "Saved",

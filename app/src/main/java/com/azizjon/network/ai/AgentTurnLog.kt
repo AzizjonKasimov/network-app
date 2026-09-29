@@ -89,4 +89,7 @@ class AgentTurnLog {
 
     /** Tool calls with contact values removed, for reports. */
     val calls = mutableListOf<String>()
+
+    /** What the turn searched for and read on the web, known once it finishes. */
+    val web = mutableListOf<WebLookup>()
 }

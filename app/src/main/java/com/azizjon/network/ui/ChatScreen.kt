@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -281,8 +283,11 @@ private fun AssistantConsentDialog(onConfirm: () -> Unit, onDismiss: () -> Unit)
                 "To answer questions and file things on the right people, the assistant reads whichever records it needs " +
                     "and sends them through your private AI gateway to Anthropic: names, positions, education, locations, " +
                     "relationship context, tags, profile notes, notes, needs, capabilities, background facts, and dates. " +
+                    "When you ask it to look someone up or send it a link, it also searches the web with that person's name " +
+                    "and a few details that tell them apart, such as their company or city, and the gateway opens the pages. " +
                     "Contact values stay on this phone. What it saves can be undone from its reply, and deleting or merging " +
                     "always waits for you. You can revoke this in Settings.",
+                modifier = Modifier.verticalScroll(rememberScrollState()),
             )
         },
         confirmButton = { TextButton(onClick = onConfirm) { Text("Allow") } },

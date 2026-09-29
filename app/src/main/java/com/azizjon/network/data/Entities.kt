@@ -53,7 +53,14 @@ data class InteractionEntity(
         /** Saved by the assistant directly, undoable from the reply that saved it. */
         const val ORIGIN_ASSISTANT = "assistant"
 
-        val ORIGINS = setOf(ORIGIN_MANUAL, ORIGIN_AI_REVIEWED, ORIGIN_ASSISTANT)
+        /**
+         * Saved by the assistant from a web lookup the user asked for, ending
+         * with the pages it came from. What a page says about someone is less
+         * certain than what the user was told, so it is labelled apart.
+         */
+        const val ORIGIN_WEB = "web"
+
+        val ORIGINS = setOf(ORIGIN_MANUAL, ORIGIN_AI_REVIEWED, ORIGIN_ASSISTANT, ORIGIN_WEB)
     }
 }
 

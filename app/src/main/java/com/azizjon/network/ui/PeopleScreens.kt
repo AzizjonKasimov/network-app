@@ -216,6 +216,10 @@ fun PersonDetailScreen(
     val interactions = snapshot.interactionsFor(person.id)
     val needs = snapshot.needsFor(person.id)
     val capabilities = snapshot.capabilitiesFor(person.id)
+    // A record from a web lookup is less certain than one the user was told,
+    // so it says where it came from.
+    val webNotes = interactions.filter { it.origin == InteractionEntity.ORIGIN_WEB }.map { it.id }.toSet()
+    fun webLabel(sourceNoteId: Long?): String = if (sourceNoteId != null && sourceNoteId in webNotes) "From the web" else ""
 
     Scaffold(
         topBar = {
@@ -238,6 +242,7 @@ fun PersonDetailScreen(
                 positions.forEach { item ->
                     AffiliationCard(
                         item = item,
+                        source = webLabel(item.sourceInteractionId),
                         onDelete = { onDeleteAffiliation(item) },
                         onSetCurrent = { current -> onSetAffiliationCurrent(item, current) },
                     )
@@ -247,6 +252,7 @@ fun PersonDetailScreen(
                 education.forEach { item ->
                     AffiliationCard(
                         item = item,
+                        source = webLabel(item.sourceInteractionId),
                         onDelete = { onDeleteAffiliation(item) },
                         onSetCurrent = { current -> onSetAffiliationCurrent(item, current) },
                     )
@@ -254,17 +260,22 @@ fun PersonDetailScreen(
             }
             RecordSection("Background", facts.size, { addKind = RecordKind.FACT }) {
                 facts.forEach { item ->
-                    RecordCard(item.text, item.lastConfirmedAt, { onDeleteFact(item) })
+                    RecordCard(item.text, item.lastConfirmedAt, { onDeleteFact(item) }, webLabel(item.sourceInteractionId))
                 }
             }
             RecordSection("Capabilities / resources", capabilities.size, { addKind = RecordKind.CAPABILITY }) {
                 capabilities.forEach { item ->
-                    RecordCard(item.text, item.lastConfirmedAt, { onDeleteCapability(item) }, if (item.active) "" else "Inactive")
+                    RecordCard(
+                        item.text,
+                        item.lastConfirmedAt,
+                        { onDeleteCapability(item) },
+                        joinLabels(if (item.active) "" else "Inactive", webLabel(item.sourceInteractionId)),
+                    )
                 }
             }
             RecordSection("Needs / goals", needs.size, { addKind = RecordKind.NEED }) {
                 needs.forEach { item ->
-                    RecordCard(item.text, item.lastConfirmedAt, { onDeleteNeed(item) }, needStatus(item))
+                    RecordCard(item.text, item.lastConfirmedAt, { onDeleteNeed(item) }, joinLabels(needStatus(item), webLabel(item.sourceInteractionId)))
                 }
             }
             RecordSection("Interactions", interactions.size, { addKind = RecordKind.INTERACTION }) {
@@ -276,6 +287,7 @@ fun PersonDetailScreen(
                         status = when (item.origin) {
                             InteractionEntity.ORIGIN_AI_REVIEWED -> "AI-reviewed capture"
                             InteractionEntity.ORIGIN_ASSISTANT -> "Saved by the assistant"
+                            InteractionEntity.ORIGIN_WEB -> "Found on the web by the assistant"
                             else -> ""
                         },
                         onMove = { movingInteraction = item },
@@ -345,6 +357,8 @@ fun PersonDetailScreen(
 @Composable
 private fun AffiliationCard(
     item: AffiliationEntity,
+    /** Where it came from when that is worth saying, such as "From the web". */
+    source: String,
     onDelete: () -> Unit,
     onSetCurrent: (Boolean) -> Unit,
 ) {
@@ -358,7 +372,7 @@ private fun AffiliationCard(
                 else -> "Past"
             }
             Text(
-                "$state · confirmed ${formatDate(item.lastConfirmedAt)}",
+                joinLabels("$state · confirmed ${formatDate(item.lastConfirmedAt)}", source.lowercase()),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -579,6 +593,9 @@ private fun needStatus(need: NeedEntity): String = listOfNotNull(
     "Closed".takeIf { need.status != NeedEntity.STATUS_ACTIVE },
     helpedLabel(need),
 ).joinToString(" · ")
+
+/** Status labels on one line, skipping the empty ones. */
+private fun joinLabels(vararg labels: String): String = labels.filter(String::isNotEmpty).joinToString(" · ")
 
 private val dayFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 internal fun formatDate(timestamp: Long): String =

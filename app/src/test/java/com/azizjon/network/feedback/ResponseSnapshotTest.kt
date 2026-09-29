@@ -54,6 +54,22 @@ class ResponseSnapshotTest {
     }
 
     @Test
+    fun webLookupsAreRecordedBeforeWhatTheyLedTo() {
+        val message = assistantMessage(
+            text = "Synthetic Person advises Lumen Labs.",
+            attachment = result(saved = listOf("Saved a web lookup on Synthetic Person")).copy(
+                web = listOf("Searched the web for “Synthetic Person Lumen Labs”", "Could not open linkedin.com/in/synthetic-person"),
+            ),
+        )
+
+        val detail = ResponseSnapshot.detailOf(message)
+
+        assertTrue(detail.startsWith("Looked up online:"))
+        assertTrue(detail.contains("Could not open linkedin.com/in/synthetic-person"))
+        assertTrue(detail.indexOf("Looked up online:") < detail.indexOf("Saved:"))
+    }
+
+    @Test
     fun aFailedTurnIsRecordedAsAnError() {
         val message = assistantMessage(text = "The gateway timed out.", attachment = null, failed = true)
 

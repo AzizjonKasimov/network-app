@@ -244,7 +244,9 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
                     refreshBackupState()
                     scheduleAutoBackup()
                 }
-                val attachment = if (log.saved.isEmpty() && log.pending.isEmpty()) {
+                // A lookup that saved nothing still gets a card: what was sent to
+                // the web is worth seeing even when the answer was "not sure".
+                val attachment = if (log.saved.isEmpty() && log.pending.isEmpty() && log.web.isEmpty()) {
                     null
                 } else {
                     ChatAttachment.AgentResult(
@@ -254,6 +256,7 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
                         pending = log.pending.map { PendingItem(it) },
                         people = log.people.toList(),
                         calls = log.calls.toList(),
+                        web = log.web.map { it.line },
                     )
                 }
                 if (outcome.error == null) {

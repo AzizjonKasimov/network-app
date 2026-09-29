@@ -40,6 +40,9 @@ object ResponseSnapshot {
      * would never reveal.
      */
     private fun describeAgentResult(result: ChatAttachment.AgentResult): String = buildString {
+        // The web tools run on the gateway, so these are the only record of
+        // them, and a lookup that found the wrong person shows up here first.
+        section("Looked up online", result.web)
         section("Saved", result.saved)
         if (result.undone) appendLine("Undone by the user afterwards.")
         result.undoError?.let { appendLine("Undo was refused: $it") }
