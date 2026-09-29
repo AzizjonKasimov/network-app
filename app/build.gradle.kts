@@ -23,8 +23,8 @@ android {
         applicationId = "com.azizjon.network"
         minSdk = 26
         targetSdk = 35
-        versionCode = 18
-        versionName = "0.15.1"
+        versionCode = 19
+        versionName = "0.16.0"
         vectorDrawables { useSupportLibrary = true }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
