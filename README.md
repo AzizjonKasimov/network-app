@@ -30,7 +30,7 @@ The first native Android version includes:
 - launch-time and manual signed APK update checks;
 - a PowerShell release workflow matching the existing expense tracker pattern.
 
-The current signed release is [`v0.16.0`](https://github.com/AzizjonKasimov/network-app-releases/releases/tag/v0.16.0) (version code `19`). Its GitHub asset and updater manifest have been verified against the package version, byte size, SHA-256 digest, and pinned signing certificate.
+The current signed release is [`v0.17.0`](https://github.com/AzizjonKasimov/network-app-releases/releases/tag/v0.17.0) (version code `20`). Its GitHub asset and updater manifest have been verified against the package version, byte size, SHA-256 digest, and pinned signing certificate.
 
 Manual editing and local matching remain fully available without the gateway or network access. What the assistant saves is listed under its reply with one **Undo**, and deleting or merging always waits for a tap.
 
