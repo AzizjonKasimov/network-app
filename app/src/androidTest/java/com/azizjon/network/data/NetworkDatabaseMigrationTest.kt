@@ -7,6 +7,7 @@ import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.azizjon.network.checkin.CheckinEntity
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -39,11 +40,23 @@ class NetworkDatabaseMigrationTest {
                 NetworkDatabase.MIGRATION_4_5,
                 NetworkDatabase.MIGRATION_5_6,
                 NetworkDatabase.MIGRATION_6_7,
+                NetworkDatabase.MIGRATION_7_8,
             )
             .build()
         try {
             val dao = database.networkDao()
             assertEquals("Legacy Person", dao.allPeople().single().name)
+
+            // The check-in starts with nothing to ask, and records a sighting once.
+            val checkins = database.checkinDao()
+            assertTrue(checkins.all().isEmpty())
+            val sighting = CheckinEntity("chat:telegram:ana lee", "telegram", "Ana Lee", 1_000L, 1_000L, CheckinEntity.STATUS_OPEN, 1_000L)
+            checkins.recordSighting(sighting)
+            checkins.recordSighting(sighting.copy(name = "Ana Lee 🙂", lastSeenAt = 2_000L))
+            val stored = checkins.all().single()
+            assertEquals("Ana Lee 🙂", stored.name)
+            assertEquals(2_000L, stored.lastSeenAt)
+            assertEquals(1_000L, stored.firstSeenAt)
             assertEquals(InteractionEntity.ORIGIN_MANUAL, dao.allInteractions().single().origin)
             assertNull(dao.allNeeds().single().sourceInteractionId)
             // Nothing could be marked helped before, so every need is still waiting.

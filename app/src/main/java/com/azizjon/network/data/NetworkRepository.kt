@@ -206,6 +206,27 @@ class NetworkRepository(private val dao: NetworkDao) {
         dao.touchPerson(item.personId, now)
     }
 
+    /** The check-in's "still open": the need is unchanged, only re-dated. */
+    suspend fun confirmNeed(item: NeedEntity) {
+        val now = System.currentTimeMillis()
+        if (dao.confirmNeed(item.id, now) == 0) throw IllegalArgumentException(NEED_GONE)
+        dao.touchPerson(item.personId, now)
+    }
+
+    /** The check-in's "still there". */
+    suspend fun confirmAffiliation(item: AffiliationEntity) {
+        val now = System.currentTimeMillis()
+        if (dao.confirmAffiliation(item.id, now) == 0) throw IllegalArgumentException(POSITION_GONE)
+        dao.touchPerson(item.personId, now)
+    }
+
+    /** The check-in's "left": kept as a past position, dated today. */
+    suspend fun endAffiliation(item: AffiliationEntity) {
+        val now = System.currentTimeMillis()
+        if (dao.endAffiliation(item.id, now) == 0) throw IllegalArgumentException(POSITION_GONE)
+        dao.touchPerson(item.personId, now)
+    }
+
     suspend fun deleteCapability(item: CapabilityEntity) {
         dao.deleteCapability(item.id)
         dao.touchPerson(item.personId, System.currentTimeMillis())
@@ -259,6 +280,7 @@ class NetworkRepository(private val dao: NetworkDao) {
 
     companion object {
         private const val NEED_GONE = "That need no longer exists"
+        private const val POSITION_GONE = "That position no longer exists"
 
         /** Caps so one enormous note cannot bloat the database or a report. */
         const val MAX_FEEDBACK_NOTE_CHARACTERS = 1_000

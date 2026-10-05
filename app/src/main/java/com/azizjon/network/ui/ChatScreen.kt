@@ -1,5 +1,6 @@
 package com.azizjon.network.ui
 
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,15 +29,25 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.azizjon.network.ai.AgentClient
+import com.azizjon.network.ai.AttachedPhoto
 import com.azizjon.network.ai.ChatAttachment
 import com.azizjon.network.ai.ChatMessage
 import com.azizjon.network.ai.ChatRole
 import com.azizjon.network.ai.ChatState
+import com.azizjon.network.ai.PhotoLimits
 import com.azizjon.network.data.NetworkSnapshot
 import com.azizjon.network.feedback.AiFeedbackLabel
 
@@ -53,12 +64,17 @@ fun ChatScreen(
     chat: ChatState,
     snapshot: NetworkSnapshot,
     draft: String,
+    photos: List<AttachedPhoto>,
+    preparingPhotos: Int,
+    focusRequested: Boolean,
     consentRequested: Boolean,
     feedbackTarget: ChatMessage?,
-    speechFallbackAllowed: Boolean,
     onDraftChange: (String) -> Unit,
+    onAttachPhotos: (List<Uri>, Boolean) -> Unit,
+    onRemovePhoto: (Long) -> Unit,
+    newCaptureUri: () -> Uri,
+    onFocused: () -> Unit,
     onSend: () -> Unit,
-    onAllowSpeechFallback: () -> Unit,
     onOpenPerson: (Long) -> Unit,
     onUndo: (Long) -> Unit,
     onConfirmAction: (Long, String) -> Unit,
@@ -119,10 +135,15 @@ fun ChatScreen(
         HorizontalDivider()
         Composer(
             draft = draft,
+            photos = photos,
+            preparingPhotos = preparingPhotos,
+            focusRequested = focusRequested,
             busy = busy,
-            speechFallbackAllowed = speechFallbackAllowed,
             onDraftChange = onDraftChange,
-            onAllowSpeechFallback = onAllowSpeechFallback,
+            onAttachPhotos = onAttachPhotos,
+            onRemovePhoto = onRemovePhoto,
+            newCaptureUri = newCaptureUri,
+            onFocused = onFocused,
             onSend = onSend,
         )
     }
@@ -156,6 +177,7 @@ private fun ChatMessageRow(
         horizontalAlignment = if (fromUser) Alignment.End else Alignment.Start,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        if (message.thumbnails.isNotEmpty()) SentPhotosRow(message.thumbnails)
         if (message.text.isNotBlank()) {
             Surface(
                 color = when {
@@ -224,34 +246,62 @@ private fun PhaseRow(label: String) {
 @Composable
 private fun Composer(
     draft: String,
+    photos: List<AttachedPhoto>,
+    preparingPhotos: Int,
+    focusRequested: Boolean,
     busy: Boolean,
-    speechFallbackAllowed: Boolean,
     onDraftChange: (String) -> Unit,
-    onAllowSpeechFallback: () -> Unit,
+    onAttachPhotos: (List<Uri>, Boolean) -> Unit,
+    onRemovePhoto: (Long) -> Unit,
+    newCaptureUri: () -> Uri,
+    onFocused: () -> Unit,
     onSend: () -> Unit,
 ) {
-    Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    // Held as a TextFieldValue so text put in from elsewhere - a check-in
+    // question, a shared link - leaves the cursor at its end, ready to type on.
+    var field by remember { mutableStateOf(TextFieldValue(draft, TextRange(draft.length))) }
+    LaunchedEffect(draft) {
+        if (field.text != draft) field = TextFieldValue(draft, TextRange(draft.length))
+    }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(focusRequested) {
+        if (focusRequested) {
+            focus.requestFocus()
+            onFocused()
+        }
+    }
+
+    Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (photos.isNotEmpty() || preparingPhotos > 0) {
+            AttachedPhotosRow(photos, preparingPhotos, enabled = !busy, onRemove = onRemovePhoto)
+        }
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            PhotoButton(
+                enabled = !busy && photos.size + preparingPhotos < PhotoLimits.MAX_PHOTOS,
+                onPicked = { onAttachPhotos(it, false) },
+                onCaptured = { onAttachPhotos(listOf(it), true) },
+                newCaptureUri = newCaptureUri,
+            )
             OutlinedTextField(
-                value = draft,
-                onValueChange = { if (it.length <= AgentClient.MAX_INPUT_CHARACTERS) onDraftChange(it) },
+                value = field,
+                onValueChange = {
+                    if (it.text.length <= AgentClient.MAX_INPUT_CHARACTERS) {
+                        field = it
+                        onDraftChange(it.text)
+                    }
+                },
                 enabled = !busy,
                 placeholder = { Text("Tell me about someone, or ask anything") },
                 maxLines = 6,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).focusRequester(focus),
             )
-            FilledIconButton(onClick = onSend, enabled = draft.isNotBlank() && !busy) {
+            FilledIconButton(
+                onClick = onSend,
+                enabled = (draft.isNotBlank() || photos.isNotEmpty()) && preparingPhotos == 0 && !busy,
+            ) {
                 Text("↑")
             }
         }
-        VoiceInputControl(
-            value = draft,
-            maxCharacters = AgentClient.MAX_INPUT_CHARACTERS,
-            enabled = !busy,
-            fallbackAllowed = speechFallbackAllowed,
-            onAllowFallback = onAllowSpeechFallback,
-            onValueChange = onDraftChange,
-        )
     }
 }
 
@@ -264,6 +314,7 @@ private fun EmptyChatState(modifier: Modifier = Modifier) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Start a conversation", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text("Tell me about someone you spoke with, and I will save it on the right people.")
+            Text("Send a photo of a business card or a screenshot of someone's profile, and I will save who they are.")
             Text("Ask anything about your network: who could help with a goal, what you last discussed with someone, who works where.")
             Text(
                 "Changes save straight away and can be undone from my reply. Deleting and merging always wait for you to confirm.",
@@ -285,6 +336,7 @@ private fun AssistantConsentDialog(onConfirm: () -> Unit, onDismiss: () -> Unit)
                     "relationship context, tags, profile notes, notes, needs, capabilities, background facts, and dates. " +
                     "When you ask it to look someone up or send it a link, it also searches the web with that person's name " +
                     "and a few details that tell them apart, such as their company or city, and the gateway opens the pages. " +
+                    "Photos you attach go with the message they were sent with and are not kept. " +
                     "Contact values stay on this phone. What it saves can be undone from its reply, and deleting or merging " +
                     "always waits for you. You can revoke this in Settings.",
                 modifier = Modifier.verticalScroll(rememberScrollState()),

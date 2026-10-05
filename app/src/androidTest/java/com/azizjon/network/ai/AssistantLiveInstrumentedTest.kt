@@ -111,7 +111,7 @@ class AssistantLiveInstrumentedTest {
 
     private suspend fun liveTurn(agent: AssistantAgent, name: String, message: String): AgentOutcome {
         val started = System.currentTimeMillis()
-        val outcome = agent.run(message, emptyList()) {}
+        val outcome = agent.run(message, photos = emptyList(), history = emptyList()) {}
         val elapsed = System.currentTimeMillis() - started
         Log.i(TAG, "$name took $elapsed ms, ${outcome.log.calls.size} tool calls, ${outcome.log.saved.size} saved")
         assertNull("Live turn '$name' failed after $elapsed ms: ${outcome.error}", outcome.error)

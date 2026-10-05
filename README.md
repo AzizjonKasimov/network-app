@@ -13,13 +13,14 @@ The first native Android version includes:
 - record dated interactions, needs/goals, and capabilities/resources;
 - a **Needs** tab listing what everyone else in the network is trying to solve or get, with the ones you have not helped with yet up front, each saying who the person is;
 - looking someone up on the web when you ask or send a link, saved as a note marked as found on the web, with the pages it came from;
+- photos in the chat: a business card, a screenshot of someone's profile, or a name badge, picked from the gallery, taken with the camera, or shared into the app from another app;
+- an evening **Check-in** that asks about people you saved in your phone or who wrote to you on Telegram, WhatsApp, KakaoTalk, or LinkedIn but are not in the network yet, about chats with people who are, and about saved details that may have gone stale;
 - private on-device matching across profile fields and linked records;
 - a single chat thread where an agent answers any question about the network and records what the user tells it, across several people in one message;
 - changes the assistant saves land immediately and can be undone together from its reply;
 - deletes and merges the assistant asks for wait on a confirmation card;
 - moving a note, and every record it created, onto another person or a brand-new one when it lands on the wrong contact, by asking or from the person screen;
 - turning a record into the right kind - a need that is really a capability, a position that is really education - without retyping it;
-- on-device-first voice input in the chat composer;
 - labelling a wrong assistant answer in the thread, with the reports carried in the encrypted backup for later diagnosis;
 - adaptive connected-N launcher artwork, including round and monochrome variants;
 - Room persistence with cascading deletion;
@@ -51,7 +52,7 @@ AI features are optional and route through a **self-hosted gateway** rather than
 
 1. Obtain an access token for the gateway, issued for this device.
 2. Open **Settings → AI gateway**, paste the token, and tap **Save**.
-3. On **Assistant**, type or dictate a message. The first one asks, once, for permission for the assistant to read your network.
+3. On **Assistant**, type a message or attach a photo. The keyboard's own voice typing works in the message box. The first message asks, once, for permission for the assistant to read your network.
 
 The assistant is an agent. Claude plans on the gateway, and every lookup and change it makes is a tool call the gateway hands back to the phone, where it runs against Room and returns only what that call asked for. The database never leaves the phone, and no tool ever returns a contact value. One message can take several steps - finding the person, reading their records, saving a note and the records it supports - and the thread shows which step is running.
 
@@ -60,7 +61,16 @@ It can:
 - answer questions about the network: who could help with something, what was last discussed with someone, who works where, who has not come up in a while;
 - record what you tell it on every person a message concerns, keeping your words as a note and the facts it states as positions, education, needs, capabilities, or background records linked to that note;
 - update, close, or re-date records, turn a record into the right kind, move a note to the person it belongs to, create people, change profile fields, and archive or restore someone;
-- look someone up on the web when you ask.
+- look someone up on the web when you ask;
+- read photos you send, such as a business card or a screenshot of a profile.
+
+### Photos
+
+Tap the picture button beside the message box to choose up to three photos from the gallery or take one with the camera, or share a screenshot or photo into Network App from any other app. A shared link or text lands in the message box the same way. Nothing is sent until you tap send, and a photo can go on its own: a business card or a profile with no message means "save this person".
+
+Each photo is shrunk on the phone to what Claude reads at full detail (at most 1568 pixels on the long side, about 350 KB) and written again as a JPEG, so nothing from the original file travels with it, including where it was taken. Photos go to the gateway and Anthropic with that one message and are not kept: not in Room, not in the backup, not in replayed history, and not in reports, which say only that a photo was sent. A camera photo is deleted from the app's cache once read.
+
+The assistant treats a photo like something you told it, finds the person first, and notes that what it saved came from a photo. A phone number or email printed on a business card may be saved as the person's contact. It recognizes people only by names and text, never by their face, and text inside a photo is never taken as an instruction. An address that appears only in a photo cannot be opened by a web lookup; ask for a lookup and it searches instead.
 
 ### Looking people up on the web
 
@@ -89,11 +99,26 @@ Replayed history is capped at six turns and 3,000 characters. A reply is replaye
 
 Missing configuration, timeouts, quota errors, and offline failures are shown in the thread. When a turn fails partway, whatever it saved before failing is still listed with its **Undo**.
 
-## Voice input
+## Check-in
 
-The microphone control in the **Assistant** composer requests `RECORD_AUDIO` only after it is tapped. On Android 12 or newer, the app prefers an available on-device recognizer. If on-device recognition is unavailable, the app explains that the phone's speech provider may process audio remotely and asks before enabling that fallback for the current app session.
+Keeping a network up to date by hand fails in a predictable way: you forget to add someone at all, forget to save what came up in a conversation, and never notice when a saved detail goes stale. The **Check-in** tab asks instead, and an optional evening reminder brings you to it. Its badge counts what is waiting.
 
-Network App never saves audio files, logs recognized speech, or includes audio in Room or encrypted backups. Only the final transcript is appended to the editable field. Partial results are shown only while listening, transcripts that would exceed 4,000 characters are rejected without changing the existing text, and voice input never automatically submits an AI request, search, or database write.
+It asks about four things:
+
+- **New people** - names saved in your phone's contacts, or people who wrote to you on Telegram, WhatsApp, KakaoTalk, or LinkedIn, who are not in the network yet. One card per name, wherever they turned up. **Add** opens the Assistant with their name started for you; finish the sentence and send it. **Later** asks again in a week; **Never** stops asking about that name. The first time contacts are turned on, everyone in the phone who is not in the network shows up once, so **Skip all** is there for the catch-up.
+- **Talked to recently** - someone in the network who wrote to you in the last two weeks, after anything was last saved about them, at most once a week per person. **Add a note** starts a message about them; **Nothing new** answers it.
+- **Still true?** - an open need not confirmed for 60 days, or a current position not confirmed for 180 days, a few at a time, oldest first. **Still open** or **Still there** re-dates it, **Done** closes the need, **Left** keeps the position as a past one, and **Later** asks again in 30 days.
+- **Missing details** - someone added in the last 30 days with no work or study saved.
+
+Whether someone is already in the network is decided by name when the list is drawn, ignoring case, accents, emoji, a bracketed aside, and word order. So a person you add through the assistant drops off the list on their own, and so does a chat question once a note about that person is saved.
+
+Each source is off until you turn it on at the bottom of the tab:
+
+- **Evening reminder** - one notification a day at the time you choose (21:00 by default), saying how much is waiting, or asking whether you met anyone when nothing is. It needs Android's notification permission. A reminder the phone could not deliver within three hours of its time, say because it was off, is skipped for the day.
+- **Phone contacts** - reads display names only, never numbers or emails, with Android's contacts permission.
+- **Chat apps** - needs Android's notification access, which shows the app every notification on the phone. Network App returns at once for any app but those four, and from theirs keeps only who wrote and when, never the message. Group chats are skipped. LinkedIn counts only messages and connections, recognized from English notification wording. A chat that is muted, or read on a computer before the phone notifies, is not seen. Because Network App is not from the Play Store, Android may first require **App info, the menu at the top right, Allow restricted settings**; the tab walks through it.
+
+What the check-in learns - names, where they turned up, when, and your answers - stays in Room on the phone. It is not in the encrypted backup, the assistant cannot read it, and it never leaves the phone unless you tap **Add** and send the message it starts.
 
 ## Assistant feedback
 
@@ -125,7 +150,7 @@ Network data is sensitive third-party personal information. Android automatic cl
 
 Gateway requests are an explicit exception chosen by the user. Each message sends the message, the bounded history described above, and then whatever records the assistant's tool calls read, never contact values. A web lookup you ask for also sends the person's name and a few identifying details to a web search, and the gateway fetches the pages. See [PRIVACY.md](PRIVACY.md) for the exact boundary. A token stored by a mobile app can be recovered from a rooted or otherwise compromised device, so issue one token per device and revoke it on the gateway if that device is lost.
 
-Speech input is separate from the gateway. On-device recognition keeps audio with the device recognition service. If the user accepts the disclosed fallback, Android's configured speech provider may transmit audio under that provider's terms; the fallback consent lasts only until the Network App process restarts.
+Photos you attach go to the gateway with that message only, as described under Photos. The check-in reads contact names and chat senders on the phone and keeps them there; see Check-in.
 
 GitHub backup is optional and configured inside the app:
 
@@ -201,8 +226,10 @@ The script verifies the active GitHub account and repository visibility, prevent
 - The agent in `ai`: `AssistantAgent` runs a turn, `AgentClient` speaks the gateway's `/v1/agent/turns` protocol, `AssistantTools` executes each tool call against Room, and `AssistantPrompt` holds the instructions and replayed history. Conversation state is in `ChatModels`. `PlainReply` takes out the markdown Claude sometimes writes despite the prompt, before a reply enters the thread, so the thread, replayed history, and reports carry the same plain text. It also turns links into their text and drops the closing list of sources that web search asks for, since the card lists the pages.
 - Web lookups run on the gateway (`"web": true` on every turn), not as phone tools. The finished reply lists each search and page as a `WebLookup`, and `add_note` with `sources` saves the result as a `web`-origin note whose records the person screen marks as from the web. The Needs cards' who-is-this line is `NetworkSnapshot.identityLines()`.
 - `AssistantStore` writes through a `ChangeRecorder` that keeps every row's before and after image. That is what lets one reply be undone as a whole, and lets undo detect anything edited since instead of overwriting it. Deletes and merges are separate store methods that only a confirmation card calls.
-- Lifecycle-managed Android speech recognition with on-device preference and a disclosed session-only fallback.
+- Photos in `ai`: `PhotoPreparer` decodes at reduced size, turns the photo upright, and re-encodes a JPEG under the size cap; `PhotoLimits` holds the limits; `AgentClient` sends them as the turn's `images`.
+- The check-in in `checkin`: `CheckinRules` builds the list as one pure function over the stored answers and the network, `ChatNotificationListener` and `ChatNotificationParser` turn chat notifications into names, `ContactsScanner` reads contact names, `CheckinRepository` keeps the `checkins` table, and `EveningCheckin` schedules the reminder as one-time WorkManager work that queues the next day's run behind itself, so it does not drift.
+- Room schema version 8 adds the `checkins` table: who turned up in the address book or a chat app, and the answers given. It is the phone's own bookkeeping and stays out of the backup, so the backup schema is unchanged.
 - Encrypted backup codec separated from the GitHub transport.
 - Feedback capture and response flattening in `feedback`, kept free of Android types so both are unit-tested.
 - `BackupPayload` carries reported answers beside the snapshot rather than inside it, so diagnostic rows never reach the screens or the assistant's tools. Backup schema 5 adds them; backups written earlier restore with none. Schema 6 adds the `assistant` note origin, so an older app reports a newer backup as unsupported rather than damaged, and schema 8 adds the `web` origin for the same reason. Room itself stays at version 7: an origin is a text column.
-- No backend, account, analytics, telemetry, contact scraping, automatic address-book import, autonomous outreach, or deletion without confirmation.
+- No backend, account, analytics, telemetry, contact scraping, autonomous outreach, or deletion without confirmation. The check-in reads contact names and chat senders only after you turn it on, to ask about them; it adds nobody by itself.

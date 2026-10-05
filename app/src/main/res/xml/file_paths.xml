@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <cache-path name="updates" path="updates/" />
+    <!-- Where the camera app writes a photo for the assistant; deleted once read. -->
+    <cache-path name="photos" path="photos/" />
 </paths>

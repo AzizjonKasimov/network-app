@@ -98,7 +98,7 @@ object AssistantToolSchemas {
         "relationship": { "type": "string", "maxLength": 500, "description": "How the user knows them." },
         "tags": { "type": "string", "maxLength": 500, "description": "Comma-separated." },
         "profile_notes": { "type": "string", "maxLength": 4000 },
-        "contact": { "type": "string", "maxLength": 500, "description": "Only a contact detail the user typed in this conversation." },
+        "contact": { "type": "string", "maxLength": 500, "description": "Only a contact detail the user typed in this conversation, or one printed on a business card they sent a photo of." },
         "allow_same_name": { "type": "boolean" }
       }
     }
@@ -116,7 +116,7 @@ object AssistantToolSchemas {
         "relationship": { "type": "string", "maxLength": 500, "description": "How the user knows them." },
         "tags": { "type": "string", "maxLength": 500, "description": "Comma-separated. Replaces the existing tags." },
         "profile_notes": { "type": "string", "maxLength": 4000, "description": "Replaces the existing profile notes." },
-        "contact": { "type": "string", "maxLength": 500, "description": "Only a contact detail the user typed in this conversation. You cannot read the stored one." },
+        "contact": { "type": "string", "maxLength": 500, "description": "Only a contact detail the user typed in this conversation, or one printed on a business card they sent a photo of. You cannot read the stored one." },
         "archived": { "type": "boolean" }
       }
     }

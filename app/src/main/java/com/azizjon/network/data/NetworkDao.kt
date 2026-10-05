@@ -107,6 +107,16 @@ abstract class NetworkDao {
     @Query("UPDATE needs SET status = :status, lastConfirmedAt = :confirmedAt WHERE id = :id")
     abstract suspend fun setNeedStatus(id: Long, status: String, confirmedAt: Long): Int
 
+    // The check-in's answers, single-column for the same reason.
+    @Query("UPDATE needs SET lastConfirmedAt = :confirmedAt WHERE id = :id")
+    abstract suspend fun confirmNeed(id: Long, confirmedAt: Long): Int
+
+    @Query("UPDATE affiliations SET lastConfirmedAt = :confirmedAt WHERE id = :id")
+    abstract suspend fun confirmAffiliation(id: Long, confirmedAt: Long): Int
+
+    @Query("UPDATE affiliations SET current = 0, lastConfirmedAt = :confirmedAt WHERE id = :id")
+    abstract suspend fun endAffiliation(id: Long, confirmedAt: Long): Int
+
     @Query("DELETE FROM capabilities WHERE id = :id")
     abstract suspend fun deleteCapability(id: Long)
 

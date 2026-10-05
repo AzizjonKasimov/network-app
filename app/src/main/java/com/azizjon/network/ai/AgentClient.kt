@@ -74,19 +74,18 @@ class AgentClient(private val tokenProvider: () -> String?) {
     val configured: Boolean
         get() = !tokenProvider().isNullOrBlank()
 
-    /** [web] lets Claude search the web and read pages on the gateway during the turn. */
-    suspend fun start(system: String, input: String, tools: JSONArray, maxSteps: Int, web: Boolean): AgentEvent =
-        parseEvent(
-            post(
-                "$GATEWAY_BASE_URL/v1/agent/turns",
-                JSONObject()
-                    .put("system", system)
-                    .put("input", input)
-                    .put("tools", tools)
-                    .put("max_steps", maxSteps)
-                    .apply { if (web) put("web", true) },
-            ),
-        )
+    /**
+     * [web] lets Claude search the web and read pages on the gateway during the
+     * turn. [photos] are base64 JPEGs the user attached, read with the message.
+     */
+    suspend fun start(
+        system: String,
+        input: String,
+        tools: JSONArray,
+        maxSteps: Int,
+        web: Boolean,
+        photos: List<String> = emptyList(),
+    ): AgentEvent = parseEvent(post("$GATEWAY_BASE_URL/v1/agent/turns", startBody(system, input, tools, maxSteps, web, photos)))
 
     suspend fun submit(turnId: String, callId: String, output: String, isError: Boolean): AgentEvent =
         parseEvent(
@@ -168,6 +167,25 @@ class AgentClient(private val tokenProvider: () -> String?) {
 
         private val TURN_ID = Regex("^[0-9a-f-]{36}$")
 
+        internal fun startBody(
+            system: String,
+            input: String,
+            tools: JSONArray,
+            maxSteps: Int,
+            web: Boolean,
+            photos: List<String>,
+        ): JSONObject = JSONObject()
+            .put("system", system)
+            .put("input", input)
+            .put("tools", tools)
+            .put("max_steps", maxSteps)
+            .apply { if (web) put("web", true) }
+            .apply {
+                if (photos.isNotEmpty()) {
+                    put("images", JSONArray(photos.map { JSONObject().put("media_type", "image/jpeg").put("data", it) }))
+                }
+            }
+
         internal fun parseEvent(responseBody: String): AgentEvent {
             val json = runCatching { JSONObject(responseBody) }
                 .getOrElse { throw GatewayException("The assistant returned an unreadable response.", it) }
@@ -227,6 +245,9 @@ class AgentClient(private val tokenProvider: () -> String?) {
                 "The gateway cannot run the assistant right now."
             responseBody.contains("unknown_turn", ignoreCase = true) ->
                 "The assistant lost track of this request. Try again."
+            responseBody.contains("invalid_image", ignoreCase = true) ->
+                "The gateway could not read one of the photos. Try a different one."
+            status == 413 -> "That message is too large to send. Try fewer photos."
             status == 422 -> "The assistant declined this request. Try different wording."
             status == 400 -> "The gateway rejected the request. Update the app."
             status == 409 -> "The request was stopped before it finished."

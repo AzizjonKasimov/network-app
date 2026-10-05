@@ -2,6 +2,7 @@ package com.azizjon.network.ai
 
 import java.time.Instant
 import java.time.ZoneId
+import java.util.Base64
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -30,17 +31,24 @@ class AssistantAgent(
 ) {
     val configured: Boolean get() = client.configured
 
-    suspend fun run(message: String, history: List<ChatTurn>, onProgress: (String) -> Unit): AgentOutcome {
+    /** [photos] are the JPEGs attached to [message]; they travel with this turn only. */
+    suspend fun run(
+        message: String,
+        photos: List<ByteArray>,
+        history: List<ChatTurn>,
+        onProgress: (String) -> Unit,
+    ): AgentOutcome {
         val log = AgentTurnLog()
         var turnId: String? = null
         return try {
             var event = client.start(
                 system = AssistantPrompt.SYSTEM,
-                input = AssistantPrompt.input(message, history, clock(), zone(), Locale.getDefault().toLanguageTag()),
+                input = AssistantPrompt.input(message, history, clock(), zone(), Locale.getDefault().toLanguageTag(), photos.size),
                 tools = tools.definitions(),
                 maxSteps = AgentClient.MAX_STEPS,
                 // Always offered; the prompt limits it to lookups the user asks for.
                 web = true,
+                photos = photos.map(Base64.getEncoder()::encodeToString),
             )
             turnId = event.turnId
             while (event is AgentEvent.ToolCall) {

@@ -4,4 +4,6 @@
     <string name="ai_request_channel_name">AI processing</string>
     <string name="ai_request_notification_title">Preparing your note</string>
     <string name="ai_request_notification_text">The assistant is still working. You can keep using other apps.</string>
+    <string name="checkin_channel_name">Evening check-in</string>
+    <string name="chat_listener_label">Network App check-in</string>
 </resources>

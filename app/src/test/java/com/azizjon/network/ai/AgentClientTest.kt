@@ -97,6 +97,22 @@ class AgentClientTest {
         assertTrue(AgentClient.httpFailureReason(404, """{"error":{"code":"unknown_turn"}}""").contains("lost track"))
         assertTrue(AgentClient.httpFailureReason(503, """{"error":{"code":"agent_unavailable"}}""").contains("cannot run"))
         assertTrue(AgentClient.httpFailureReason(504).contains("too long"))
+        assertTrue(AgentClient.httpFailureReason(400, """{"error":{"code":"invalid_image"}}""").contains("photos"))
+        assertTrue(AgentClient.httpFailureReason(413).contains("fewer photos"))
         assertEquals("The gateway returned HTTP 418.", AgentClient.httpFailureReason(418))
+    }
+
+    @Test
+    fun photosTravelAsJpegImagesOnlyWhenThereAreAny() {
+        val tools = org.json.JSONArray()
+        val plain = AgentClient.startBody("system", "input", tools, 30, web = true, photos = emptyList())
+        val withPhotos = AgentClient.startBody("system", "input", tools, 30, web = true, photos = listOf("AAAA", "BBBB"))
+
+        assertTrue(!plain.has("images"))
+        val images = withPhotos.getJSONArray("images")
+        assertEquals(2, images.length())
+        assertEquals("image/jpeg", images.getJSONObject(0).getString("media_type"))
+        assertEquals("BBBB", images.getJSONObject(1).getString("data"))
+        assertTrue(withPhotos.getBoolean("web"))
     }
 }

@@ -2,26 +2,25 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!--
         A capture waits tens of seconds on the gateway. Without a foreground
         service the process is cached the moment the user leaves the app, and a
         cached process is frozen and eventually killed with the reply still in
-        flight. POST_NOTIFICATIONS is not requested at runtime: the service keeps
-        its foreground priority either way, and a denied grant only hides the
-        notice from the drawer.
+        flight. The service keeps its foreground priority whether or not
+        POST_NOTIFICATIONS is granted; the check-in asks for it, because its
+        evening reminder is a notification and means nothing hidden.
     -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <queries>
-        <intent>
-            <action android:name="android.speech.RecognitionService" />
-        </intent>
-    </queries>
+    <!--
+        The check-in asks about numbers the user saves. Requested only when the
+        user turns that on, and only names are read.
+    -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
 
     <application
         android:name=".NetworkApplication"
@@ -33,15 +32,32 @@
         android:theme="@style/Theme.NetworkApp"
         android:usesCleartextTraffic="false">
 
+        <!--
+            Single task, so a photo or link shared from another app, and the
+            check-in reminder, land in the running app and its conversation
+            rather than in a second copy of it.
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.NetworkApp"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
             </intent-filter>
         </activity>
 
@@ -49,6 +65,20 @@
             android:name=".ai.AiRequestService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!--
+            Sees who wrote in Telegram, WhatsApp, KakaoTalk and LinkedIn, once
+            the user grants notification access. Only the system can bind it.
+        -->
+        <service
+            android:name=".checkin.ChatNotificationListener"
+            android:exported="true"
+            android:label="@string/chat_listener_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
         <provider
             android:name="androidx.core.content.FileProvider"

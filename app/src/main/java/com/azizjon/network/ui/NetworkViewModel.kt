@@ -1,6 +1,7 @@
 package com.azizjon.network.ui
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.azizjon.network.NetworkApplication
@@ -10,6 +11,7 @@ import com.azizjon.network.ai.AiRequestService
 import com.azizjon.network.ai.AssistantAgent
 import com.azizjon.network.ai.AssistantPrompt
 import com.azizjon.network.ai.AssistantTools
+import com.azizjon.network.ai.AttachedPhoto
 import com.azizjon.network.ai.ChatAttachment
 import com.azizjon.network.ai.ChatMessage
 import com.azizjon.network.ai.ChatPhase
@@ -18,8 +20,18 @@ import com.azizjon.network.ai.ChatState
 import com.azizjon.network.ai.GatewaySettingsState
 import com.azizjon.network.ai.PendingAction
 import com.azizjon.network.ai.PendingItem
+import com.azizjon.network.ai.PhotoException
+import com.azizjon.network.ai.PhotoLimits
+import com.azizjon.network.ai.PhotoPreparer
 import com.azizjon.network.backup.BackupStatus
 import com.azizjon.network.backup.GitHubBackupConfig
+import com.azizjon.network.checkin.ChatSources
+import com.azizjon.network.checkin.CheckinEntity
+import com.azizjon.network.checkin.CheckinList
+import com.azizjon.network.checkin.CheckinRules
+import com.azizjon.network.checkin.CheckinSettingsState
+import com.azizjon.network.checkin.EveningCheckin
+import com.azizjon.network.checkin.NewPersonItem
 import com.azizjon.network.data.AffiliationEntity
 import com.azizjon.network.data.AiFeedbackEntity
 import com.azizjon.network.data.CapabilityEntity
@@ -42,6 +54,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -106,8 +121,44 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
     private val _gatewaySettingsState = MutableStateFlow(gatewaySettings.state)
     val gatewaySettingsState: StateFlow<GatewaySettingsState> = _gatewaySettingsState.asStateFlow()
 
-    private val _speechFallbackAllowed = MutableStateFlow(false)
-    val speechFallbackAllowed: StateFlow<Boolean> = _speechFallbackAllowed.asStateFlow()
+    /** Photos attached to the unsent message. Memory only, like the thread. */
+    private val _photos = MutableStateFlow<List<AttachedPhoto>>(emptyList())
+    val photos: StateFlow<List<AttachedPhoto>> = _photos.asStateFlow()
+
+    /** Photos still being shrunk; sending waits for them. */
+    private val _preparingPhotos = MutableStateFlow(0)
+    val preparingPhotos: StateFlow<Int> = _preparingPhotos.asStateFlow()
+
+    /** A tab another part of the app asked to show, such as a shared photo opening the Assistant. */
+    private val _requestedSection = MutableStateFlow<AppSection?>(null)
+    val requestedSection: StateFlow<AppSection?> = _requestedSection.asStateFlow()
+
+    private val photoPreparer = PhotoPreparer(app)
+    private var nextPhotoId = 1L
+
+    /** Set when something filled the composer for the user, so it opens ready to type. */
+    private val _composerFocusRequested = MutableStateFlow(false)
+    val composerFocusRequested: StateFlow<Boolean> = _composerFocusRequested.asStateFlow()
+
+    private val checkins = app.checkins
+    private val checkinSettingsStore = app.checkinSettings
+
+    private val _checkinSettings = MutableStateFlow(checkinSettingsStore.state)
+    val checkinSettings: StateFlow<CheckinSettingsState> = _checkinSettings.asStateFlow()
+
+    /** Re-evaluated hourly as well, so a "later" comes back without waiting for a change. */
+    val checkinList: StateFlow<CheckinList> = combine(
+        checkins.observe(),
+        snapshot,
+        flow {
+            while (true) {
+                emit(Unit)
+                delay(CHECKIN_REFRESH_MS)
+            }
+        },
+    ) { rows, network, _ -> CheckinRules.build(rows, network, System.currentTimeMillis()) }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CheckinList())
 
     private var backupJob: Job? = null
     private var chatJob: Job? = null
@@ -116,6 +167,7 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
 
     init {
         if (settings.status.backupNeeded) scheduleAutoBackup()
+        refreshCheckinSources()
         viewModelScope.launch {
             val restored = withContext(Dispatchers.IO) {
                 runCatching { captureDraftStore.read() }.getOrDefault("")
@@ -131,10 +183,6 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
 
     fun clearMessage() {
         _message.value = null
-    }
-
-    fun allowSpeechFallbackForSession() {
-        _speechFallbackAllowed.value = true
     }
 
     fun savePerson(draft: PersonDraft, onSaved: (Long) -> Unit = {}) = mutate {
@@ -206,6 +254,175 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
+     * Shrinks and attaches photos to the unsent message, up to the limit.
+     *
+     * [fromCamera] marks a capture this app owns, which is deleted once read so
+     * a photo of someone's card does not linger in the cache.
+     */
+    fun attachPhotos(uris: List<Uri>, fromCamera: Boolean = false) {
+        if (uris.isEmpty()) return
+        val room = PhotoLimits.MAX_PHOTOS - _photos.value.size - _preparingPhotos.value
+        val accepted = uris.take(room.coerceAtLeast(0))
+        if (accepted.size < uris.size) {
+            showMessage("A message can carry ${PhotoLimits.MAX_PHOTOS} photos, so not all of them were added.")
+        }
+        if (fromCamera) uris.drop(accepted.size).forEach(photoPreparer::deleteCapture)
+        accepted.forEach { uri ->
+            _preparingPhotos.value += 1
+            viewModelScope.launch {
+                try {
+                    val photo = photoPreparer.prepare(uri, nextPhotoId++)
+                    _photos.value = (_photos.value + photo).take(PhotoLimits.MAX_PHOTOS)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: PhotoException) {
+                    showMessage(error.message ?: UNREADABLE_PHOTO)
+                } catch (error: Exception) {
+                    // Decoder messages are technical; the user only needs to know it failed.
+                    showMessage(UNREADABLE_PHOTO)
+                } finally {
+                    _preparingPhotos.value -= 1
+                    if (fromCamera) photoPreparer.deleteCapture(uri)
+                }
+            }
+        }
+    }
+
+    fun removePhoto(id: Long) {
+        _photos.value = _photos.value.filterNot { it.id == id }
+    }
+
+    /** Where the camera app should write a photo for the composer. */
+    fun newCaptureUri(): Uri = photoPreparer.newCaptureUri()
+
+    /**
+     * Takes what another app shared: photos join the composer, text is added
+     * to it, and the Assistant tab opens. Nothing is sent until the user does.
+     */
+    fun receiveShare(text: String?, photos: List<Uri>) {
+        text?.trim()?.takeIf(String::isNotEmpty)?.let { shared ->
+            val current = _composerDraft.value.trimEnd()
+            val combined = if (current.isEmpty()) shared else "$current\n$shared"
+            updateComposerDraft(combined.take(AgentClient.MAX_INPUT_CHARACTERS))
+        }
+        attachPhotos(photos)
+        openSection(AppSection.CHAT)
+    }
+
+    fun openSection(section: AppSection) {
+        _requestedSection.value = section
+    }
+
+    fun clearRequestedSection() {
+        _requestedSection.value = null
+    }
+
+    fun composerFocused() {
+        _composerFocusRequested.value = false
+    }
+
+    /**
+     * Starts a message about someone from the check-in. The user finishes and
+     * sends it; the assistant then files it like anything else they tell it.
+     */
+    private fun prefillAssistant(text: String) {
+        val current = _composerDraft.value.trimEnd()
+        updateComposerDraft((if (current.isEmpty()) text else "$current\n$text").take(AgentClient.MAX_INPUT_CHARACTERS))
+        _composerFocusRequested.value = true
+        openSection(AppSection.CHAT)
+    }
+
+    fun checkinAddPerson(item: NewPersonItem) {
+        val where = when (val source = item.sources.first()) {
+            CheckinEntity.SOURCE_CONTACTS -> "saved in my phone"
+            else -> "wrote to me on ${ChatSources.label(source)}"
+        }
+        prefillAssistant("${item.name} ($where): ")
+        setCheckinStatus(item.refs, CheckinEntity.STATUS_DONE)
+    }
+
+    fun checkinAddNote(name: String, refs: List<String>) {
+        prefillAssistant("About $name: ")
+        if (refs.isNotEmpty()) setCheckinStatus(refs, CheckinEntity.STATUS_DONE)
+    }
+
+    fun setCheckinStatus(refs: List<String>, status: String) {
+        viewModelScope.launch {
+            try {
+                checkins.setStatus(refs, status)
+            } catch (error: Exception) {
+                showMessage(error.message ?: "Could not save that answer")
+            }
+        }
+    }
+
+    fun skipAllNewPeople() {
+        val people = checkinList.value.newPeople
+        setCheckinStatus(people.flatMap { it.refs }, CheckinEntity.STATUS_NEVER)
+        showMessage("Skipped ${people.size} people")
+    }
+
+    fun setRecordCheckinStatus(ref: String, status: String) {
+        viewModelScope.launch {
+            try {
+                checkins.setRecordStatus(ref, status)
+            } catch (error: Exception) {
+                showMessage(error.message ?: "Could not save that answer")
+            }
+        }
+    }
+
+    // Record answers change the network, so they go through mutate() and the backup marker.
+    fun confirmNeedStillOpen(item: NeedEntity) = mutate { repository.confirmNeed(item) }
+
+    fun closeNeedFromCheckin(item: NeedEntity) = mutate {
+        repository.setNeedActive(item, false)
+        showMessage("Moved to Closed on the Needs tab")
+    }
+
+    fun confirmPosition(item: AffiliationEntity) = mutate { repository.confirmAffiliation(item) }
+
+    fun endPosition(item: AffiliationEntity) = mutate {
+        repository.endAffiliation(item)
+        showMessage("Marked as a past position. Tell the assistant where they are now.")
+    }
+
+    fun setEveningReminder(enabled: Boolean, minutes: Int) {
+        checkinSettingsStore.setEvening(enabled, minutes)
+        refreshCheckinSettings()
+        EveningCheckin.schedule(app, checkinSettingsStore.state, replace = true)
+    }
+
+    fun setContactsSource(enabled: Boolean) {
+        checkinSettingsStore.setContacts(enabled)
+        refreshCheckinSettings()
+        if (enabled) refreshCheckinSources()
+    }
+
+    fun setChatsSource(enabled: Boolean) {
+        checkinSettingsStore.setChats(enabled)
+        refreshCheckinSettings()
+    }
+
+    /** Picks up contacts saved since the last look. Cheap: names only. */
+    fun refreshCheckinSources() {
+        if (!checkinSettingsStore.state.contactsEnabled) return
+        viewModelScope.launch {
+            try {
+                checkins.refreshContacts()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // The address book was unreadable this time; the next look will try again.
+            }
+        }
+    }
+
+    private fun refreshCheckinSettings() {
+        _checkinSettings.value = checkinSettingsStore.state
+    }
+
+    /**
      * Sends the composer text to the assistant as the next turn in the thread.
      *
      * The first message waits on the one-time disclosure: from here on the
@@ -214,7 +431,12 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
      */
     fun sendChatMessage() {
         val text = _composerDraft.value.trim()
-        if (_chat.value.phase.busy || text.isEmpty()) return
+        val photos = _photos.value
+        if (_chat.value.phase.busy || (text.isEmpty() && photos.isEmpty())) return
+        if (_preparingPhotos.value > 0) {
+            showMessage("Still getting the photos ready. Try again in a moment.")
+            return
+        }
         if (text.length > AgentClient.MAX_INPUT_CHARACTERS) {
             showMessage("That message is too long. Keep it under ${AgentClient.MAX_INPUT_CHARACTERS} characters.")
             return
@@ -228,16 +450,17 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
             return
         }
         val history = AssistantPrompt.history(_chat.value.messages)
-        appendUser(text)
+        appendUser(text, photos)
         _composerDraft.value = ""
+        _photos.value = emptyList()
         viewModelScope.launch { clearDraft() }
 
         chatJob?.cancel()
         chatJob = viewModelScope.launch {
-            setPhase(ChatPhase.Working("Reading your message…"))
+            setPhase(ChatPhase.Working(if (photos.isEmpty()) "Reading your message…" else "Reading your photos…"))
             try {
                 val outcome = AiRequestService.holdingProcess(app) {
-                    agent.run(text, history) { status -> setPhase(ChatPhase.Working(status)) }
+                    agent.run(text, photos.map { it.jpeg }, history) { status -> setPhase(ChatPhase.Working(status)) }
                 }
                 val log = outcome.log
                 if (log.changes.isNotEmpty()) {
@@ -552,7 +775,8 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
             )
         }
 
-    private fun appendUser(text: String) = append(ChatRole.USER, text, null, false)
+    private fun appendUser(text: String, photos: List<AttachedPhoto>) =
+        append(ChatRole.USER, text, null, false, photos = photos)
 
     private fun appendAssistant(
         text: String,
@@ -567,6 +791,7 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         attachment: ChatAttachment?,
         failed: Boolean,
         fromGateway: Boolean = false,
+        photos: List<AttachedPhoto> = emptyList(),
     ) {
         val message = ChatMessage(
             id = nextMessageId++,
@@ -576,6 +801,8 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
             failed = failed,
             sentAt = System.currentTimeMillis(),
             fromGateway = fromGateway,
+            photoCount = photos.size,
+            thumbnails = photos.map(AttachedPhoto::thumbnail),
         )
         _chat.value = _chat.value.copy(messages = _chat.value.messages + message)
     }
@@ -588,7 +815,9 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
 
     /** The turn that produced a response, so a report shows both halves. */
     private fun precedingUserMessage(messageId: Long): String =
-        _chat.value.messages.lastOrNull { it.id < messageId && it.role == ChatRole.USER }?.text.orEmpty()
+        _chat.value.messages.lastOrNull { it.id < messageId && it.role == ChatRole.USER }
+            ?.let { AssistantPrompt.userLine(it.text, it.photoCount) }
+            .orEmpty()
 
     private fun setPhase(phase: ChatPhase) {
         _chat.value = _chat.value.copy(phase = phase)
@@ -680,5 +909,7 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
     companion object {
         private const val AUTO_BACKUP_DELAY_MS = 1_500L
         private const val DRAFT_SAVE_DELAY_MS = 400L
+        private const val UNREADABLE_PHOTO = "That photo could not be opened."
+        private const val CHECKIN_REFRESH_MS = 60 * 60 * 1000L
     }
 }

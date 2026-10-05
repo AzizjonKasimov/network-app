@@ -6,6 +6,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.azizjon.network.checkin.CheckinDao
+import com.azizjon.network.checkin.CheckinEntity
 
 @Database(
     entities = [
@@ -16,12 +18,14 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AffiliationEntity::class,
         FactEntity::class,
         AiFeedbackEntity::class,
+        CheckinEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 abstract class NetworkDatabase : RoomDatabase() {
     abstract fun networkDao(): NetworkDao
+    abstract fun checkinDao(): CheckinDao
 
     companion object {
         @Volatile private var instance: NetworkDatabase? = null
@@ -31,8 +35,31 @@ abstract class NetworkDatabase : RoomDatabase() {
                 context.applicationContext,
                 NetworkDatabase::class.java,
                 "network.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                 .build().also { instance = it }
+        }
+
+        /**
+         * Adds the evening check-in's bookkeeping: who turned up in the address
+         * book or a chat app, and what the user answered. Nothing to carry over.
+         */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE checkins (
+                        ref TEXT PRIMARY KEY NOT NULL,
+                        source TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        firstSeenAt INTEGER NOT NULL,
+                        lastSeenAt INTEGER NOT NULL,
+                        status TEXT NOT NULL,
+                        statusAt INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL("CREATE INDEX index_checkins_source ON checkins(source)")
+            }
         }
 
         /**

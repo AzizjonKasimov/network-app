@@ -1,5 +1,6 @@
 package com.azizjon.network.ai
 
+import android.graphics.Bitmap
 import com.azizjon.network.data.RowChange
 
 enum class ChatRole { USER, ASSISTANT }
@@ -53,6 +54,13 @@ data class ChatMessage(
      * database and outlives both this message and the whole thread.
      */
     val reportedLabel: String? = null,
+    /**
+     * Photos the user sent with this message. Only the count outlives the turn:
+     * replayed history and reports say a photo was sent, never what was in it.
+     */
+    val photoCount: Int = 0,
+    /** Small previews for the thread, held in memory with it. */
+    val thumbnails: List<Bitmap> = emptyList(),
 )
 
 /** What the thread is doing right now. Drives the composer and the progress row. */

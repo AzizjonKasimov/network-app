@@ -53,6 +53,34 @@ class AssistantPromptTest {
         assertTrue(input.endsWith("The user's message:\nWho could help Ana with fundraising?"))
     }
 
+    @Test
+    fun photosAreCountedInTheInputAndAMessageOfOnlyPhotosSaysSo() {
+        val input = AssistantPrompt.input(
+            message = "  ",
+            history = emptyList(),
+            now = Instant.parse("2026-10-05T12:00:00Z"),
+            zone = ZoneId.of("Asia/Seoul"),
+            locale = "en-US",
+            photos = 2,
+        )
+
+        assertTrue(input.contains("The user attached 2 photos to this message."))
+        assertTrue(input.endsWith("The user's message:\n(no text, only the photos)"))
+    }
+
+    @Test
+    fun aReplayedMessageSaysAPhotoWasSentButCarriesNothingFromIt() {
+        val history = AssistantPrompt.history(
+            listOf(
+                message(1, ChatRole.USER, "Add her", photos = 1),
+                message(2, ChatRole.USER, "", photos = 2),
+            ),
+        )
+
+        assertEquals(listOf("[sent a photo] Add her", "[sent 2 photos]"), history.map { it.text })
+        assertEquals("Plain text", AssistantPrompt.userLine("Plain text", 0))
+    }
+
     private fun message(
         id: Long,
         role: ChatRole,
@@ -60,6 +88,7 @@ class AssistantPromptTest {
         fromGateway: Boolean = false,
         failed: Boolean = false,
         memory: List<String> = emptyList(),
+        photos: Int = 0,
     ) = ChatMessage(
         id = id,
         role = role,
@@ -79,5 +108,6 @@ class AssistantPromptTest {
         failed = failed,
         sentAt = id,
         fromGateway = fromGateway,
+        photoCount = photos,
     )
 }

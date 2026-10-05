@@ -4,6 +4,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -24,8 +26,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.azizjon.network.update.UpdatePrompt
 import com.azizjon.network.update.rememberUpdatePromptState
 
-private enum class AppSection(val label: String) {
+enum class AppSection(val label: String) {
     CHAT("Assistant"),
+    CHECKIN("Check-in"),
     PEOPLE("People"),
     NEEDS("Needs"),
     SETTINGS("Settings"),
@@ -37,11 +40,16 @@ fun NetworkApp(viewModel: NetworkViewModel) {
     val backupState by viewModel.backupState.collectAsStateWithLifecycle()
     val chat by viewModel.chat.collectAsStateWithLifecycle()
     val composerDraft by viewModel.composerDraft.collectAsStateWithLifecycle()
+    val photos by viewModel.photos.collectAsStateWithLifecycle()
+    val preparingPhotos by viewModel.preparingPhotos.collectAsStateWithLifecycle()
+    val composerFocusRequested by viewModel.composerFocusRequested.collectAsStateWithLifecycle()
     val consentRequested by viewModel.consentRequested.collectAsStateWithLifecycle()
     val gatewaySettingsState by viewModel.gatewaySettingsState.collectAsStateWithLifecycle()
-    val speechFallbackAllowed by viewModel.speechFallbackAllowed.collectAsStateWithLifecycle()
     val feedbackState by viewModel.feedbackState.collectAsStateWithLifecycle()
     val feedbackTarget by viewModel.feedbackTarget.collectAsStateWithLifecycle()
+    val checkinList by viewModel.checkinList.collectAsStateWithLifecycle()
+    val checkinSettings by viewModel.checkinSettings.collectAsStateWithLifecycle()
+    val requestedSection by viewModel.requestedSection.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var section by rememberSaveable { mutableStateOf(AppSection.CHAT) }
@@ -53,6 +61,14 @@ fun NetworkApp(viewModel: NetworkViewModel) {
         val value = message ?: return@LaunchedEffect
         snackbar.showSnackbar(value)
         viewModel.clearMessage()
+    }
+
+    // A shared photo, a notification, or a check-in answer can ask for a tab.
+    LaunchedEffect(requestedSection) {
+        val target = requestedSection ?: return@LaunchedEffect
+        selectedPersonId = null
+        section = target
+        viewModel.clearRequestedSection()
     }
 
     // Back from a person returns to the list they were opened from instead of
@@ -70,7 +86,12 @@ fun NetworkApp(viewModel: NetworkViewModel) {
                         NavigationBarItem(
                             selected = section == item,
                             onClick = { section = item },
-                            icon = { Text(item.label.take(1)) },
+                            icon = {
+                                val count = if (item == AppSection.CHECKIN) checkinList.count else 0
+                                BadgedBox(badge = { if (count > 0) Badge { Text(if (count > 99) "99+" else count.toString()) } }) {
+                                    Text(item.label.take(1))
+                                }
+                            },
                             label = { Text(item.label) },
                         )
                     }
@@ -115,12 +136,17 @@ fun NetworkApp(viewModel: NetworkViewModel) {
                             chat = chat,
                             snapshot = snapshot,
                             draft = composerDraft,
+                            photos = photos,
+                            preparingPhotos = preparingPhotos,
+                            focusRequested = composerFocusRequested,
                             consentRequested = consentRequested,
                             feedbackTarget = feedbackTarget,
-                            speechFallbackAllowed = speechFallbackAllowed,
                             onDraftChange = viewModel::updateComposerDraft,
+                            onAttachPhotos = viewModel::attachPhotos,
+                            onRemovePhoto = viewModel::removePhoto,
+                            newCaptureUri = viewModel::newCaptureUri,
+                            onFocused = viewModel::composerFocused,
                             onSend = viewModel::sendChatMessage,
-                            onAllowSpeechFallback = viewModel::allowSpeechFallbackForSession,
                             onOpenPerson = { selectedPersonId = it },
                             onUndo = viewModel::undoChatChanges,
                             onConfirmAction = viewModel::confirmChatAction,
@@ -131,6 +157,24 @@ fun NetworkApp(viewModel: NetworkViewModel) {
                             onDismissFeedback = viewModel::dismissFeedback,
                             onSubmitFeedback = viewModel::submitFeedback,
                             onNewChat = viewModel::startNewChat,
+                        )
+                        AppSection.CHECKIN -> CheckinScreen(
+                            list = checkinList,
+                            settings = checkinSettings,
+                            onOpenPerson = { selectedPersonId = it },
+                            onAddPerson = viewModel::checkinAddPerson,
+                            onAddNote = viewModel::checkinAddNote,
+                            onPeopleStatus = viewModel::setCheckinStatus,
+                            onSkipAllNew = viewModel::skipAllNewPeople,
+                            onNeedStillOpen = viewModel::confirmNeedStillOpen,
+                            onNeedDone = viewModel::closeNeedFromCheckin,
+                            onPositionStill = viewModel::confirmPosition,
+                            onPositionLeft = viewModel::endPosition,
+                            onRecordStatus = viewModel::setRecordCheckinStatus,
+                            onSetEvening = viewModel::setEveningReminder,
+                            onSetContacts = viewModel::setContactsSource,
+                            onSetChats = viewModel::setChatsSource,
+                            onRefresh = viewModel::refreshCheckinSources,
                         )
                         AppSection.PEOPLE -> PeopleScreen(
                             snapshot = snapshot,

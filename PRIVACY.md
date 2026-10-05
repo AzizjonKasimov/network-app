@@ -1,6 +1,6 @@
 # Network App Privacy
 
-Network App stores private information about people, conversations, needs, and capabilities in the app's local Room database. Android cloud backup, analytics, telemetry, advertising, accounts, contact scraping, and automatic address-book import are disabled or absent.
+Network App stores private information about people, conversations, needs, and capabilities in the app's local Room database. Android cloud backup, analytics, telemetry, advertising, accounts, contact scraping, and automatic address-book import are disabled or absent. The check-in reads contact names and chat senders only after the user turns it on, to ask about them, and never adds anyone by itself (see Check-in).
 
 ## Local operation
 
@@ -44,13 +44,29 @@ Each message is sent with up to six earlier turns of the thread, capped at 3,000
 
 History lives only in memory for the life of the thread; it is not written to Room or to backups, and starting a new thread discards it.
 
-## Voice input
+## Photos
 
-Voice input is available only for the unsent chat message. The app requests Android's `RECORD_AUDIO` permission only after the microphone control is tapped. It prefers an on-device speech recognizer when Android reports one is available.
+The user can attach up to three photos to a message: chosen with Android's photo picker, taken with the camera app, or shared into Network App from another app. None of these needs a storage or camera permission: the picker and the share hand over only the photos the user chose, and the camera app writes into one file the app offers it.
 
-When on-device recognition is unavailable, the app does not silently switch providers. It explains that Android's configured speech provider may transmit audio to remote servers and asks the user to allow that fallback for the current app session. This consent is held only in process memory, is not included in Room or backups, and resets when the app process restarts.
+A photo is sent only with the message it is attached to, when the user taps send. Before that, the phone decodes it at reduced size (at most 1568 pixels on the long side), turns it upright, and writes a new JPEG of at most about 350 KB from the pixels, so the original file's metadata, including any location, is not sent. The photo goes to the gateway and to Anthropic with that one turn, like the message text. The gateway logs only how many photos a turn had, and does not keep them.
 
-Network App does not create or retain audio files, write speech or transcripts to logs, or add them to backups. Partial recognition is displayed only while listening. The final transcript is appended to the editable field and can be changed or discarded. A transcript is sent to the gateway only if the user later sends the message; voice input itself never submits or saves anything.
+Photos are held in memory only. They are not written to Room, not included in the encrypted backup, not replayed with later messages, and not copied into a reported answer; replayed history and reports say only that a photo was sent. A photo taken with the camera is deleted from the app's cache as soon as it has been read, and an abandoned capture is cleared by the next one.
+
+A photo may show other people, such as a chat screenshot. The assistant's instructions limit what it saves to what concerns the people the message is about, forbid recognizing anyone by face or appearance, and treat text in a photo as data, never as instructions. A contact detail printed on a business card the user sent may be saved as that person's contact value, which then stays on the phone like any other. An address visible only in a photo cannot be opened by a web lookup.
+
+The keyboard's own voice typing works in the message box; that is the keyboard's feature, governed by its own settings, and Network App never receives audio.
+
+## Check-in
+
+The **Check-in** tab asks about people the network may be missing and about saved details that may be stale. Each of its sources is off until the user turns it on there:
+
+- **Phone contacts**, with Android's contacts permission. Only each contact's display name and Android's lookup key are read; numbers, emails, and all other fields are not.
+- **Chat apps**, with Android's notification access. Android then shows the app every notification on the phone. The listener returns at once for every app except Telegram, WhatsApp, KakaoTalk, and LinkedIn. From those, it keeps only the sender's name, the app, and the time, for one-to-one conversations; group chats are skipped. Message text is never stored or logged. LinkedIn's notification text is read in memory only to tell a new connection apart from likes and job alerts.
+- **Evening reminder**, with Android's notification permission. It shows how many questions are waiting, computed on the phone.
+
+Questions about stale needs and positions and about recently added people without work or study are worked out from the saved records on the phone.
+
+What the check-in collects (names, where and when they turned up, and the user's answers) is kept in a separate Room table on the phone. It is not included in the encrypted backup, the assistant's tools cannot read it, and nothing about it is sent to the gateway. A name leaves the phone only if the user taps **Add** or **Add a note** and then sends the message that starts, exactly like typing it. Turning a source off stops new collection; revoking contacts permission or notification access in Android settings does the same.
 
 ## Answers about the network
 
@@ -76,6 +92,6 @@ Request content is processed by the gateway operator and then by Anthropic under
 
 ## Failure and deletion
 
-Missing keys, rejected requests, invalid responses, unknown record IDs, quota limits, timeouts, and offline failures do not trigger fallback writes. Speech permission denial, unavailable recognition, no-match results, and speech-provider failures also leave existing text unchanged. The draft remains editable, and local search remains available. Removing the access token or revoking the assistant's permission stops later AI requests but does not delete requests already processed by the gateway operator or Anthropic.
+Missing keys, rejected requests, invalid responses, unknown record IDs, quota limits, timeouts, and offline failures do not trigger fallback writes. A photo that cannot be read is left out with a message. The draft remains editable, and local search remains available. Removing the access token or revoking the assistant's permission stops later AI requests but does not delete requests already processed by the gateway operator or Anthropic.
 
 Deleting a person locally cascades to linked interactions, needs, capabilities, positions, education, and background records. Deleting a source note clears provenance links without deleting the records derived from it. Encrypted GitHub backups retain data until replaced or deleted from the configured private repository.
