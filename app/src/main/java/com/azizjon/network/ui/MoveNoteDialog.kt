@@ -18,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.azizjon.network.data.MoveDestination
@@ -89,7 +90,7 @@ fun MoveNoteDialog(
                         onClick = { onMove(MoveDestination.Existing(person.id)) },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(label(person, snapshot), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(label(person, snapshot), textAlign = TextAlign.Center)
                     }
                 }
                 if (candidates.isEmpty() && typed.isNotEmpty() && exactMatch) {

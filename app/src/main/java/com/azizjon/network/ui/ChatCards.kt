@@ -16,8 +16,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.azizjon.network.ai.ActionState
 import com.azizjon.network.ai.ChatAttachment
@@ -84,7 +84,7 @@ fun AgentResultCard(
                 HorizontalDivider()
                 people.forEach { person ->
                     TextButton(onClick = { onOpenPerson(person.id) }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Open ${person.name}", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("Open ${person.name}", textAlign = TextAlign.Center)
                     }
                 }
             }

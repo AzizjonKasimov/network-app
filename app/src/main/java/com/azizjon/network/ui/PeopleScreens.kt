@@ -223,8 +223,10 @@ fun PersonDetailScreen(
 
     Scaffold(
         topBar = {
+            // The name heads the profile card instead: this bar's fixed height
+            // cut a long name off after two lines.
             TopAppBar(
-                title = { Text(person.name) },
+                title = {},
                 navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
                 actions = {
                     TextButton(onClick = { editing = true }) { Text("Edit") }
@@ -435,6 +437,7 @@ private fun AddAffiliationDialog(education: Boolean, onDismiss: () -> Unit, onSa
 private fun ProfileSummary(person: PersonEntity, work: String) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(person.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             if (work.isNotBlank()) Text(work, style = MaterialTheme.typography.titleMedium)
             listOf(person.location, person.contact, person.relationship, person.tags, person.notes)
                 .filter { it.isNotBlank() }
