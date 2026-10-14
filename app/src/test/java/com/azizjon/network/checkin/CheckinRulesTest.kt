@@ -100,6 +100,65 @@ class CheckinRulesTest {
     }
 
     @Test
+    fun someoneSavedUnderAnotherNameIsNotNewAndTheirChatsCount() {
+        val minsu = person(1, "Minsu Kim", aliases = "Minsu (Lumen CTO)")
+        val rows = listOf(
+            contact("c1", "Minsu (Lumen CTO)"),
+            chat(ChatSources.KAKAOTALK, "Minsu (Lumen CTO)", seen = now - day),
+        )
+
+        val list = CheckinRules.build(rows, NetworkSnapshot(people = listOf(minsu)), now)
+
+        assertTrue(list.newPeople.isEmpty())
+        assertEquals(1L, list.talkedTo.single().person.id)
+        assertEquals(listOf(ChatSources.KAKAOTALK), list.talkedTo.single().sources)
+    }
+
+    @Test
+    fun oneBracketDoesNotStandForAnother() {
+        val minsu = person(1, "Minsu Kim", aliases = "Minsu (Lumen CTO)")
+
+        val list = CheckinRules.build(
+            rows = listOf(contact("c1", "Minsu (Lumen CTO)"), contact("c2", "Minsu (Gym)")),
+            snapshot = NetworkSnapshot(people = listOf(minsu)),
+            now = now,
+        )
+
+        val gym = list.newPeople.single()
+        assertEquals("Minsu (Gym)", gym.name)
+        assertEquals(listOf(CheckinEntity.contactRef("c2")), gym.refs)
+        // Still worth a hint: it may be the same Minsu after all.
+        assertEquals(listOf(1L), gym.maybe.map { it.id })
+    }
+
+    @Test
+    fun someoneTurningUpUnderSeveralNamesIsAskedAboutOnce() {
+        val minsu = person(1, "Minsu Kim", aliases = "Minsu (Lumen CTO)\n김민수")
+        val rows = listOf(
+            chat(ChatSources.TELEGRAM, "Minsu Kim", seen = now - 2 * day),
+            chat(ChatSources.KAKAOTALK, "김민수", seen = now - day),
+            chat(ChatSources.WHATSAPP, "Minsu (Lumen CTO)", seen = now - 3 * day),
+        )
+
+        val asked = CheckinRules.build(rows, NetworkSnapshot(people = listOf(minsu)), now).talkedTo.single()
+
+        assertEquals(listOf(ChatSources.KAKAOTALK, ChatSources.TELEGRAM, ChatSources.WHATSAPP), asked.sources)
+        assertEquals(3, asked.refs.size)
+    }
+
+    @Test
+    fun aNewNameCloseToASavedOneSuggestsThem() {
+        val list = CheckinRules.build(
+            rows = listOf(contact("c1", "Minsu (Lumen CTO)"), contact("c2", "Cai Wen")),
+            snapshot = NetworkSnapshot(people = listOf(person(1, "Minsu Kim"), person(2, "Ana Lee"))),
+            now = now,
+        )
+
+        assertEquals(listOf(1L), list.newPeople.single { it.name == "Minsu (Lumen CTO)" }.maybe.map { it.id })
+        assertTrue(list.newPeople.single { it.name == "Cai Wen" }.maybe.isEmpty())
+    }
+
+    @Test
     fun oldNeedsAndPositionsComeUpOldestFirstAFewAtATime() {
         val ana = person(1, "Ana Lee")
         val needs = (1..7).map { i -> need(i.toLong(), 1, confirmed = now - (60 + i) * day) }
@@ -145,13 +204,13 @@ class CheckinRulesTest {
         CheckinEntity(CheckinEntity.contactRef(key), SOURCE_CONTACTS, name, seen, seen, status, statusAt)
 
     private fun chat(source: String, name: String, seen: Long = now, status: String = STATUS_OPEN, statusAt: Long = seen) =
-        CheckinEntity(CheckinEntity.chatRef(source, NameKey.of(name)), source, name, seen, seen, status, statusAt)
+        CheckinEntity(CheckinEntity.chatRef(source, NameKey.exact(name)), source, name, seen, seen, status, statusAt)
 
     private fun record(ref: String, status: String, at: Long) =
         CheckinEntity(ref, CheckinEntity.SOURCE_RECORDS, "", at, at, status, at)
 
-    private fun person(id: Long, name: String, archived: Boolean = false, self: Boolean = false, createdAt: Long = 0) =
-        PersonEntity(id = id, name = name, archived = archived, isSelf = self, createdAt = createdAt, updatedAt = createdAt)
+    private fun person(id: Long, name: String, archived: Boolean = false, self: Boolean = false, createdAt: Long = 0, aliases: String = "") =
+        PersonEntity(id = id, name = name, archived = archived, isSelf = self, createdAt = createdAt, updatedAt = createdAt, aliases = aliases)
 
     private fun note(personId: Long, at: Long) =
         InteractionEntity(id = at, personId = personId, note = "Synthetic note", occurredAt = at, createdAt = at)

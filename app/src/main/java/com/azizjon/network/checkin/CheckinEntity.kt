@@ -10,14 +10,16 @@ import androidx.room.PrimaryKey
  * Three kinds share the table, told apart by [ref]:
  * - `contact:<lookup key>`: a contact saved in the phone's address book.
  * - `chat:<source>:<name key>`: someone who wrote in a chat app, seen only
- *   through the notification it showed. Never the message itself.
+ *   through the notification it showed. Never the message itself. The key is
+ *   [NameKey.exact]; rows written before it kept brackets use [NameKey.of].
  * - `need:<id>`, `position:<id>` and `basics:<person id>`: a saved record, or a
  *   recently added person, the user snoozed or silenced. These reminders are
  *   worked out from the records themselves, so their rows exist only once the
  *   user answered "later" or "never".
  *
  * Whether someone is already in the network is decided when the list is built,
- * by name, so a person added through the assistant drops off by themselves.
+ * by name or other name, so a person added through the assistant, or linked by
+ * the user, drops off by themselves.
  *
  * This is the phone's own bookkeeping, not network data: it stays out of the
  * encrypted backup, and the assistant never reads it.

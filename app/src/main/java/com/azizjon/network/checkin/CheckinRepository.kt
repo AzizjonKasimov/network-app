@@ -28,12 +28,11 @@ class CheckinRepository(
     fun recordSightings(sightings: List<Sighting>, seenAt: Long) {
         scope.launch {
             sightings.forEach { sighting ->
-                val key = NameKey.of(sighting.name)
-                if (key.isEmpty()) return@forEach
+                if (NameKey.of(sighting.name).isEmpty()) return@forEach
                 val name = sighting.name.take(MAX_NAME)
-                dao.recordSighting(
-                    CheckinEntity(CheckinEntity.chatRef(sighting.source, key), sighting.source, name, seenAt, seenAt, STATUS_OPEN, seenAt),
-                )
+                // Keyed with the brackets, so "Minsu (Gym)" and "Minsu (Lumen CTO)" stay two people.
+                val ref = CheckinEntity.chatRef(sighting.source, NameKey.exact(name))
+                dao.recordSighting(CheckinEntity(ref, sighting.source, name, seenAt, seenAt, STATUS_OPEN, seenAt))
             }
         }
     }

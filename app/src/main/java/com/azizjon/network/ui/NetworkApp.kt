@@ -160,9 +160,11 @@ fun NetworkApp(viewModel: NetworkViewModel) {
                         )
                         AppSection.CHECKIN -> CheckinScreen(
                             list = checkinList,
+                            snapshot = snapshot,
                             settings = checkinSettings,
                             onOpenPerson = { selectedPersonId = it },
                             onAddPerson = viewModel::checkinAddPerson,
+                            onLinkPerson = viewModel::checkinLinkPerson,
                             onAddNote = viewModel::checkinAddNote,
                             onPeopleStatus = viewModel::setCheckinStatus,
                             onSkipAllNew = viewModel::skipAllNewPeople,

@@ -210,9 +210,36 @@ class EncryptedBackupCodecTest {
         val json = EncryptedBackupCodec.payloadToJson(BackupPayload(snapshot))
 
         assertEquals(lookup, EncryptedBackupCodec.payloadFromJson(json).snapshot.interactions.single { it.id == 9L })
-        // A web note is a value version 7 would reject, so the payload says 8
-        // and version 7 refuses it as unsupported rather than damaged.
-        assertEquals(8, JSONObject(json).getInt("schemaVersion"))
+        // A web note is a value version 7 would reject, so the payload says at
+        // least 8 and version 7 refuses it as unsupported rather than damaged.
+        assertTrue(JSONObject(json).getInt("schemaVersion") >= 8)
+    }
+
+    @Test
+    fun otherNamesRoundTripAndAnOlderAppIsToldTheBackupIsTooNew() {
+        val snapshot = sampleSnapshot().let { sample ->
+            sample.copy(people = sample.people.map { it.copy(aliases = "Sample (Northwind CEO)\n샘플") })
+        }
+        val json = EncryptedBackupCodec.payloadToJson(BackupPayload(snapshot))
+
+        assertEquals(snapshot, EncryptedBackupCodec.payloadFromJson(json).snapshot)
+        // Version 8 would restore the people without their other names.
+        assertEquals(9, JSONObject(json).getInt("schemaVersion"))
+    }
+
+    @Test
+    fun backupsWrittenBeforeOtherNamesRestoreEveryoneWithNone() {
+        val v8 = JSONObject()
+            .put("schemaVersion", 8)
+            .put("people", JSONArray().put(JSONObject()
+                .put("id", 1).put("name", "Legacy Person").put("createdAt", 1).put("updatedAt", 2)))
+            .put("interactions", JSONArray())
+            .put("needs", JSONArray())
+            .put("capabilities", JSONArray())
+            .put("affiliations", JSONArray())
+            .put("facts", JSONArray())
+
+        assertEquals("", EncryptedBackupCodec.payloadFromJson(v8.toString()).snapshot.people.single().aliases)
     }
 
     private fun sampleSnapshot(): NetworkSnapshot {

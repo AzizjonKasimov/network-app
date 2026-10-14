@@ -332,13 +332,28 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         openSection(AppSection.CHAT)
     }
 
+    /**
+     * The name is quoted because it is exactly how the phone or the chat app
+     * shows the person, which the assistant keeps as another name when they
+     * turn out to be saved under a different one.
+     */
     fun checkinAddPerson(item: NewPersonItem) {
         val where = when (val source = item.sources.first()) {
             CheckinEntity.SOURCE_CONTACTS -> "saved in my phone"
             else -> "wrote to me on ${ChatSources.label(source)}"
         }
-        prefillAssistant("${item.name} ($where): ")
+        prefillAssistant("\"${item.name}\" ($where): ")
         setCheckinStatus(item.refs, CheckinEntity.STATUS_DONE)
+    }
+
+    /**
+     * The check-in's "Already saved". Only the name is saved: its rows keep
+     * their answers, so a recent chat with the person can still be asked about
+     * under Talked to recently.
+     */
+    fun checkinLinkPerson(item: NewPersonItem, personId: Long) = mutate {
+        val person = repository.addOtherName(personId, item.name)
+        showMessage("Saved \"${item.name}\" as another name for ${if (person.isSelf) "you" else person.name}")
     }
 
     fun checkinAddNote(name: String, refs: List<String>) {

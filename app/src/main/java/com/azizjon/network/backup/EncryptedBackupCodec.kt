@@ -43,10 +43,11 @@ object EncryptedBackupCodec {
      * appears that an older version would reject or silently drop: 6 adds the
      * assistant note origin, so an older app says the backup is too new instead
      * of calling it damaged, 7 adds when the user helped with a need, which
-     * an older app would restore as never helped, and 8 adds the web note
-     * origin for the same reason as 6.
+     * an older app would restore as never helped, 8 adds the web note origin
+     * for the same reason as 6, and 9 adds a person's other names, which an
+     * older app would drop.
      */
-    internal const val SCHEMA_VERSION = 8
+    internal const val SCHEMA_VERSION = 9
 
     /** A sane ceiling so a damaged backup cannot flood the table on restore. */
     private const val MAX_FEEDBACK_ROWS = 5_000
@@ -135,7 +136,7 @@ object EncryptedBackupCodec {
         .put("id", id).put("name", name)
         .put("location", location).put("contact", contact).put("relationship", relationship)
         .put("tags", tags).put("notes", notes).put("isSelf", isSelf).put("archived", archived)
-        .put("createdAt", createdAt).put("updatedAt", updatedAt)
+        .put("createdAt", createdAt).put("updatedAt", updatedAt).put("aliases", aliases)
 
     private fun InteractionEntity.toJson() = JSONObject()
         .put("id", id).put("personId", personId).put("note", note)
@@ -196,6 +197,8 @@ object EncryptedBackupCodec {
                     archived = item.optBoolean("archived"),
                     createdAt = item.getLong("createdAt"),
                     updatedAt = item.getLong("updatedAt"),
+                    // Absent before schema 9, when nobody had other names.
+                    aliases = item.optString("aliases"),
                 )
             },
             interactions = json.getJSONArray("interactions").mapObjects { item ->

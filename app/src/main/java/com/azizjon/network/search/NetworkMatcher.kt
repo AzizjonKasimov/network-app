@@ -44,7 +44,7 @@ object NetworkMatcher {
         tokens: List<String>,
     ): PersonSearchResult? {
         val evidence = buildList {
-            val profile = listOf(person.name, person.location, person.tags, person.relationship, person.notes)
+            val profile = (listOf(person.name) + person.otherNames + listOf(person.location, person.tags, person.relationship, person.notes))
                 .filter { it.isNotBlank() }
                 .joinToString(" · ")
             score(profile, query, tokens, 2)?.let { add(SearchEvidence("Profile", profile, person.updatedAt, it)) }

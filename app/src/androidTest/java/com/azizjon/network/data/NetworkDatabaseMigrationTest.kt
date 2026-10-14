@@ -41,11 +41,16 @@ class NetworkDatabaseMigrationTest {
                 NetworkDatabase.MIGRATION_5_6,
                 NetworkDatabase.MIGRATION_6_7,
                 NetworkDatabase.MIGRATION_7_8,
+                NetworkDatabase.MIGRATION_8_9,
             )
             .build()
         try {
             val dao = database.networkDao()
             assertEquals("Legacy Person", dao.allPeople().single().name)
+            // Nobody had other names before, and one can be added straight away.
+            assertEquals("", dao.allPeople().single().aliases)
+            dao.addAlias(1, "Legacy (Corp)", now = 9)
+            assertEquals(listOf("Legacy (Corp)"), dao.allPeople().single().otherNames)
 
             // The check-in starts with nothing to ask, and records a sighting once.
             val checkins = database.checkinDao()
@@ -230,6 +235,41 @@ class NetworkDatabaseMigrationTest {
             assertEquals(0, moved.records)
             assertEquals(rightPerson, dao.allInteractions().single().personId)
             assertEquals(2, dao.allPeople().size)
+        } finally {
+            database.close()
+        }
+    }
+
+    /**
+     * The check-in's "Already saved" and a merge both leave the names a person
+     * turned up under on the person, so the check-in recognizes them afterwards.
+     */
+    @Test
+    fun linkingAndMergingKeepTheNamesSomeoneTurnedUpUnder() = runBlocking<Unit> {
+        val database = Room.inMemoryDatabaseBuilder(context, NetworkDatabase::class.java).build()
+        try {
+            val dao = database.networkDao()
+            val repository = NetworkRepository(dao)
+            val minsu = dao.savePerson(PersonEntity(name = "Synthetic Minsu Kim", location = "Seoul", createdAt = 1, updatedAt = 1))
+            val duplicate = dao.savePerson(PersonEntity(name = "Synthetic Minsu", aliases = "김민수", createdAt = 1, updatedAt = 1))
+
+            val linked = repository.addOtherName(minsu, "Synthetic Minsu (Lumen CTO)")
+            assertEquals(listOf("Synthetic Minsu (Lumen CTO)"), linked.otherNames)
+            // Only the names changed.
+            assertEquals("Seoul", dao.person(minsu)!!.location)
+            // A name already saved is not saved twice.
+            repository.addOtherName(minsu, "synthetic minsu (lumen cto)")
+            assertEquals(1, dao.person(minsu)!!.otherNames.size)
+
+            dao.mergePeople(minsu, duplicate, now = 5)
+            assertEquals(
+                listOf("Synthetic Minsu (Lumen CTO)", "Synthetic Minsu", "김민수"),
+                dao.person(minsu)!!.otherNames,
+            )
+
+            // Typed on the person screen, one per line, with the main name and blanks dropped.
+            repository.savePerson(PersonDraft(id = minsu, name = "Synthetic Minsu Kim", aliases = "\n Synthetic Minsu \nSynthetic Minsu Kim\n"))
+            assertEquals(listOf("Synthetic Minsu"), dao.person(minsu)!!.otherNames)
         } finally {
             database.close()
         }

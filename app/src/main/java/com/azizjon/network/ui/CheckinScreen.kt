@@ -16,6 +16,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -59,6 +61,8 @@ import com.azizjon.network.checkin.StaleItem
 import com.azizjon.network.checkin.TalkedItem
 import com.azizjon.network.data.AffiliationEntity
 import com.azizjon.network.data.NeedEntity
+import com.azizjon.network.data.NetworkSnapshot
+import com.azizjon.network.data.PersonEntity
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -75,9 +79,11 @@ import java.time.temporal.ChronoUnit
 @Composable
 fun CheckinScreen(
     list: CheckinList,
+    snapshot: NetworkSnapshot,
     settings: CheckinSettingsState,
     onOpenPerson: (Long) -> Unit,
     onAddPerson: (NewPersonItem) -> Unit,
+    onLinkPerson: (NewPersonItem, Long) -> Unit,
     onAddNote: (String, List<String>) -> Unit,
     onPeopleStatus: (List<String>, String) -> Unit,
     onSkipAllNew: () -> Unit,
@@ -96,6 +102,9 @@ fun CheckinScreen(
     var listenerAllowed by remember { mutableStateOf(listenerEnabled(context)) }
     var showAccessHelp by rememberSaveable { mutableStateOf(false) }
     var confirmSkipAll by rememberSaveable { mutableStateOf(false) }
+    // The card being linked to someone saved, by its first ref, so the dialog
+    // survives rotation and closes by itself if the card goes away.
+    var linkingRef by rememberSaveable { mutableStateOf<String?>(null) }
     val now = remember(list) { System.currentTimeMillis() }
 
     // Permissions are granted in other screens; pick up the answer on return.
@@ -176,9 +185,10 @@ fun CheckinScreen(
             items(list.newPeople, key = { "new-" + it.refs.first() }) { item ->
                 QuestionCard(
                     title = item.name,
-                    lines = listOf(seenLine(item.sources, item.lastSeenAt, now), "Not in your network yet."),
+                    lines = listOf(seenLine(item.sources, item.lastSeenAt, now), "Not in your network under this name." + maybeLine(item.maybe)),
                     actions = listOf(
                         "Add" to { onAddPerson(item) },
+                        "Already saved" to { linkingRef = item.refs.first() },
                         "Later" to { onPeopleStatus(item.refs, CheckinEntity.STATUS_LATER) },
                         "Never" to { onPeopleStatus(item.refs, CheckinEntity.STATUS_NEVER) },
                     ),
@@ -237,6 +247,17 @@ fun CheckinScreen(
             onDismiss = { showAccessHelp = false },
         )
     }
+    list.newPeople.firstOrNull { it.refs.first() == linkingRef }?.let { item ->
+        LinkPersonDialog(
+            item = item,
+            snapshot = snapshot,
+            onDismiss = { linkingRef = null },
+            onPick = { personId ->
+                linkingRef = null
+                onLinkPerson(item, personId)
+            },
+        )
+    }
     if (confirmSkipAll) {
         AlertDialog(
             onDismissRequest = { confirmSkipAll = false },
@@ -274,6 +295,7 @@ private fun LazyListScope.section(title: String, count: Int, action: Pair<String
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun QuestionCard(
     title: String,
@@ -294,7 +316,8 @@ private fun QuestionCard(
             lines.forEach { line ->
                 Text(line, modifier = Modifier.padding(end = 8.dp), style = MaterialTheme.typography.bodyMedium)
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            // Wraps rather than cutting off the last button on a narrow phone or with large text.
+            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 actions.forEach { (label, onClick) -> TextButton(onClick = onClick) { Text(label) } }
             }
         }
@@ -435,6 +458,16 @@ private fun NotificationAccessDialog(onOpenAccess: () -> Unit, onOpenAppInfo: ()
             }
         },
     )
+}
+
+/** " Maybe Minsu Kim?", " Maybe Minsu Kim or Minsu Park?", or nothing when no saved name comes close. */
+private fun maybeLine(people: List<PersonEntity>): String {
+    val names = people.map { if (it.isSelf) "you" else it.name }
+    return when (names.size) {
+        0 -> ""
+        1 -> " Maybe ${names.single()}?"
+        else -> " Maybe ${names.dropLast(1).joinToString(", ")} or ${names.last()}?"
+    }
 }
 
 /** "Saved in your phone · today", "Wrote on KakaoTalk, saved in your phone · 3 days ago". */

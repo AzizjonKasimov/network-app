@@ -37,11 +37,33 @@ class PersonResolverTest {
         assertEquals(archived, PersonResolver.resolve(listOf(archived), "Archived Person", includeArchived = true).exact)
     }
 
-    private fun person(id: Long, name: String, archived: Boolean = false) = PersonEntity(
+    @Test
+    fun anOtherNameFindsThePersonAndSaysWhichNameMatched() {
+        val minsu = person(1, "Minsu Kim", aliases = "Minsu (Lumen CTO)\n김민수")
+        val people = listOf(minsu, person(2, "Ana Lee"))
+
+        assertEquals(minsu, PersonResolver.resolve(people, "김민수").exact)
+        assertEquals(minsu, PersonResolver.resolve(people, "minsu (lumen cto)").exact)
+        assertEquals("김민수", PersonResolver.matchedName(minsu, "김민수"))
+        assertEquals("Minsu Kim", PersonResolver.matchedName(minsu, "Minsu Kim"))
+    }
+
+    @Test
+    fun aCheckInNameWithABracketedNoteStillSuggestsTheSavedPerson() {
+        val jordan = person(1, "Jordan Kim")
+
+        val result = PersonResolver.resolve(listOf(jordan, person(2, "Ana Lee")), "Jordan (Quanta Health)")
+
+        assertNull(result.exact)
+        assertEquals(listOf(jordan), result.suggestions)
+    }
+
+    private fun person(id: Long, name: String, archived: Boolean = false, aliases: String = "") = PersonEntity(
         id = id,
         name = name,
         archived = archived,
         createdAt = 1,
         updatedAt = 2,
+        aliases = aliases,
     )
 }

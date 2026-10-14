@@ -22,7 +22,11 @@ data class PersonEntity(
     val archived: Boolean = false,
     val createdAt: Long,
     val updatedAt: Long,
-)
+    /** Other names, one per line: see [PersonNames]. */
+    @ColumnInfo(defaultValue = "''") val aliases: String = "",
+) {
+    val otherNames: List<String> get() = PersonNames.split(aliases)
+}
 
 @Entity(
     tableName = "interactions",

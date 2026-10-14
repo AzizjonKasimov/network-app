@@ -1,6 +1,5 @@
 package com.azizjon.network.checkin
 
-import java.text.Normalizer
 import java.util.Locale
 
 /** The chat apps whose notifications say who wrote. Package names, by source. */
@@ -111,22 +110,4 @@ object ChatNotificationParser {
         Regex("""^(accepted your invitation|wants to connect|sent you an invitation|invited you to connect)""", RegexOption.IGNORE_CASE),
         Regex("""^1촌"""),
     )
-}
-
-/**
- * The form of a name used to tell whether two names are the same person:
- * case, accents, punctuation, emoji, a bracketed aside, and word order are
- * ignored, so "Kim Minsu", "minsu kim" and "Minsu Kim 🚀 (Lumen)" all match.
- */
-object NameKey {
-    fun of(name: String): String {
-        val withoutAccents = Normalizer.normalize(name.replace(BRACKETED, " "), Normalizer.Form.NFKD).replace(COMBINING_MARKS, "")
-        // Recomposed, or Hangul would stay split into its letters.
-        val plain = Normalizer.normalize(withoutAccents, Normalizer.Form.NFC).lowercase(Locale.ROOT)
-        return plain.split(NOT_A_LETTER).filter(String::isNotEmpty).sorted().joinToString(" ")
-    }
-
-    private val BRACKETED = Regex("""\([^)]*\)|\[[^]]*]""")
-    private val COMBINING_MARKS = Regex("""\p{Mn}+""")
-    private val NOT_A_LETTER = Regex("""[^\p{L}\p{N}]+""")
 }

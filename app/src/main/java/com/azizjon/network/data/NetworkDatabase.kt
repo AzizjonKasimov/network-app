@@ -20,7 +20,7 @@ import com.azizjon.network.checkin.CheckinEntity
         AiFeedbackEntity::class,
         CheckinEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = false,
 )
 abstract class NetworkDatabase : RoomDatabase() {
@@ -35,8 +35,20 @@ abstract class NetworkDatabase : RoomDatabase() {
                 context.applicationContext,
                 NetworkDatabase::class.java,
                 "network.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
-                .build().also { instance = it }
+            ).addMigrations(
+                MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9,
+            ).build().also { instance = it }
+        }
+
+        /**
+         * Gives people other names, one per line, so a contact or chat sender
+         * named differently from the network can be recognized. Everyone starts
+         * with none.
+         */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE people ADD COLUMN aliases TEXT NOT NULL DEFAULT ''")
+            }
         }
 
         /**

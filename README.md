@@ -7,6 +7,7 @@ Network App is a private Android memory aid for a personal network. It records w
 The first native Android version includes:
 
 - create, edit, archive, and delete people;
+- keep the other names someone goes by - how your phone or a chat app shows them, a name in another script, a nickname - so the check-in and the assistant recognize them under any of them;
 - record several concurrent positions per person, each with its own organization, role, and current/past state, with study listed separately under Education;
 - keep background facts that are not a need, a capability, a position, or education as their own dated, editable records;
 - mark a profile as the user's own profile for reciprocal matching;
@@ -105,12 +106,12 @@ Keeping a network up to date by hand fails in a predictable way: you forget to a
 
 It asks about four things:
 
-- **New people** - names saved in your phone's contacts, or people who wrote to you on Telegram, WhatsApp, KakaoTalk, or LinkedIn, who are not in the network yet. One card per name, wherever they turned up. **Add** opens the Assistant with their name started for you; finish the sentence and send it. **Later** asks again in a week; **Never** stops asking about that name. The first time contacts are turned on, everyone in the phone who is not in the network shows up once, so **Skip all** is there for the catch-up.
+- **New people** - names saved in your phone's contacts, or people who wrote to you on Telegram, WhatsApp, KakaoTalk, or LinkedIn, that are not in the network, at least not under that name. One card per name, wherever it turned up, with a hint such as "Maybe Minsu Kim?" when a saved name comes close. **Add** opens the Assistant with their name started for you; finish the sentence and send it. If the assistant finds they are already saved under another name, it files the note there and keeps this name as one of their other names. **Already saved** lets you pick who it is yourself, close matches first, and saves the name among that person's other names. **Later** asks again in a week; **Never** stops asking about that name. The first time contacts are turned on, everyone in the phone who is not in the network shows up once, so **Skip all** is there for the catch-up.
 - **Talked to recently** - someone in the network who wrote to you in the last two weeks, after anything was last saved about them, at most once a week per person. **Add a note** starts a message about them; **Nothing new** answers it.
 - **Still true?** - an open need not confirmed for 60 days, or a current position not confirmed for 180 days, a few at a time, oldest first. **Still open** or **Still there** re-dates it, **Done** closes the need, **Left** keeps the position as a past one, and **Later** asks again in 30 days.
 - **Missing details** - someone added in the last 30 days with no work or study saved.
 
-Whether someone is already in the network is decided by name when the list is drawn, ignoring case, accents, emoji, a bracketed aside, and word order. So a person you add through the assistant drops off the list on their own, and so does a chat question once a note about that person is saved.
+Whether someone is already in the network is decided when the list is drawn, by their name or one of their other names, ignoring case, accents, emoji, and word order. A bracketed aside is ignored against the name, so "Minsu Kim (Lumen)" is Minsu Kim, but an other name must match with its brackets, so "Minsu (Gym)" is not taken for someone saved as "Minsu (Lumen CTO)". So a person you add or link drops off the list on their own, and so does a chat question once a note about that person is saved. Other names can be edited on the person's page.
 
 Each source is off until you turn it on at the bottom of the tab:
 
@@ -118,7 +119,7 @@ Each source is off until you turn it on at the bottom of the tab:
 - **Phone contacts** - reads display names only, never numbers or emails, with Android's contacts permission.
 - **Chat apps** - needs Android's notification access, which shows the app every notification on the phone. Network App returns at once for any app but those four, and from theirs keeps only who wrote and when, never the message. Group chats are skipped. LinkedIn counts only messages and connections, recognized from English notification wording. A chat that is muted, or read on a computer before the phone notifies, is not seen. Because Network App is not from the Play Store, Android may first require **App info, the menu at the top right, Allow restricted settings**; the tab walks through it.
 
-What the check-in learns - names, where they turned up, when, and your answers - stays in Room on the phone. It is not in the encrypted backup, the assistant cannot read it, and it never leaves the phone unless you tap **Add** and send the message it starts.
+What the check-in learns - names, where they turned up, when, and your answers - stays in Room on the phone. It is not in the encrypted backup, the assistant cannot read it, and it never leaves the phone unless you tap **Add** and send the message it starts. **Already saved** copies that one name onto the person you pick, where it becomes part of the network like any profile field: backed up, and readable by the assistant.
 
 ## Assistant feedback
 
@@ -229,6 +230,7 @@ The script verifies the active GitHub account and repository visibility, prevent
 - Photos in `ai`: `PhotoPreparer` decodes at reduced size, turns the photo upright, and re-encodes a JPEG under the size cap; `PhotoLimits` holds the limits; `AgentClient` sends them as the turn's `images`.
 - The check-in in `checkin`: `CheckinRules` builds the list as one pure function over the stored answers and the network, `ChatNotificationListener` and `ChatNotificationParser` turn chat notifications into names, `ContactsScanner` reads contact names, `CheckinRepository` keeps the `checkins` table, and `EveningCheckin` schedules the reminder as one-time WorkManager work that queues the next day's run behind itself, so it does not drift.
 - Room schema version 8 adds the `checkins` table: who turned up in the address book or a chat app, and the answers given. It is the phone's own bookkeeping and stays out of the backup, so the backup schema is unchanged.
+- Room schema version 9 adds `aliases` to people: their other names, one per line, cleaned by `data/PersonNames`. `checkin/PeopleByName` matches contact and chat names against them, and `NetworkDao.mergePeople` keeps a merged duplicate's name among them. Backup schema 9 carries them; backups written earlier restore everyone with none, and an older app reports a schema 9 backup as unsupported rather than dropping them.
 - Encrypted backup codec separated from the GitHub transport.
 - Feedback capture and response flattening in `feedback`, kept free of Android types so both are unit-tested.
 - `BackupPayload` carries reported answers beside the snapshot rather than inside it, so diagnostic rows never reach the screens or the assistant's tools. Backup schema 5 adds them; backups written earlier restore with none. Schema 6 adds the `assistant` note origin, so an older app reports a newer backup as unsupported rather than damaged, and schema 8 adds the `web` origin for the same reason. Room itself stays at version 7: an origin is a text column.

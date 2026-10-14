@@ -438,6 +438,9 @@ private fun ProfileSummary(person: PersonEntity, work: String) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(person.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            if (person.otherNames.isNotEmpty()) {
+                Text("Also: " + person.otherNames.joinToString(", "), style = MaterialTheme.typography.bodyMedium)
+            }
             if (work.isNotBlank()) Text(work, style = MaterialTheme.typography.titleMedium)
             listOf(person.location, person.contact, person.relationship, person.tags, person.notes)
                 .filter { it.isNotBlank() }
@@ -510,6 +513,7 @@ private fun AddRecordDialog(kind: RecordKind, onDismiss: () -> Unit, onSave: (St
 @Composable
 private fun PersonEditorDialog(person: PersonEntity?, onDismiss: () -> Unit, onSave: (PersonDraft) -> Unit) {
     var name by rememberSaveable(person?.id) { mutableStateOf(person?.name.orEmpty()) }
+    var aliases by rememberSaveable(person?.id) { mutableStateOf(person?.aliases.orEmpty()) }
     var location by rememberSaveable(person?.id) { mutableStateOf(person?.location.orEmpty()) }
     var contact by rememberSaveable(person?.id) { mutableStateOf(person?.contact.orEmpty()) }
     var relationship by rememberSaveable(person?.id) { mutableStateOf(person?.relationship.orEmpty()) }
@@ -527,6 +531,13 @@ private fun PersonEditorDialog(person: PersonEntity?, onDismiss: () -> Unit, onS
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 FormField(name, { name = it }, "Name", true)
+                FormField(
+                    aliases,
+                    { aliases = it },
+                    "Other names",
+                    minLines = 2,
+                    supportingText = "One per line, as your phone or a chat app shows them. The check-in knows them by these too.",
+                )
                 FormField(location, { location = it }, "Location")
                 FormField(contact, { contact = it }, "Contact details")
                 FormField(relationship, { relationship = it }, "How you know them")
@@ -565,6 +576,7 @@ private fun PersonEditorDialog(person: PersonEntity?, onDismiss: () -> Unit, onS
                             notes = notes,
                             isSelf = isSelf,
                             archived = archived,
+                            aliases = aliases,
                         ),
                     )
                 },
@@ -581,11 +593,13 @@ private fun FormField(
     label: String,
     required: Boolean = false,
     minLines: Int = 1,
+    supportingText: String? = null,
 ) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label + if (required) " *" else "") },
+        supportingText = supportingText?.let { { Text(it) } },
         modifier = Modifier.fillMaxWidth(),
         minLines = minLines,
     )

@@ -6,6 +6,8 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.azizjon.network.checkin.NameKey
+import com.azizjon.network.data.AffiliationEntity
 import com.azizjon.network.data.AssistantStore
 import com.azizjon.network.data.CapabilityEntity
 import com.azizjon.network.data.NetworkDatabase
@@ -32,7 +34,7 @@ class AssistantLiveInstrumentedTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
 
     @Test
-    fun theAgentFilesCapturesAnswersQuestionsAndOnlyQueuesDeletes() = runBlocking {
+    fun theAgentFilesCapturesAnswersQuestionsKeepsCheckinNamesAndOnlyQueuesDeletes() = runBlocking {
         val arguments = InstrumentationRegistry.getArguments()
         assumeTrue("Live gateway test is opt-in", arguments.getString("liveGateway") == "true")
 
@@ -92,6 +94,28 @@ class AssistantLiveInstrumentedTest {
             assertTrue("A question must not write anything", question.log.changes.isEmpty())
             assertTrue("A question about the network must not go to the web, got ${question.log.web}", question.log.web.isEmpty())
             assertTrue("Dana should be named, reply was: ${question.reply}", question.reply.orEmpty().contains("Dana"))
+
+            // The check-in's opening line for someone saved under another name:
+            // the note goes on them, and the phone's name for them is kept.
+            val jordan = dao.savePerson(PersonEntity(name = "Jordan Kim", createdAt = now, updatedAt = now))
+            dao.insertAffiliation(
+                AffiliationEntity(personId = jordan, organization = "Quanta Health", role = "Data scientist", lastConfirmedAt = now, createdAt = now),
+            )
+            val checkin = liveTurn(
+                agent,
+                "check-in name of a saved person",
+                "\"Jordan (Quanta Health)\" (saved in my phone): we talked about climate-tech founders again.",
+            )
+            val afterCheckin = store.snapshot()
+            assertTrue(
+                "No second Jordan should be created, reply was: ${checkin.reply}",
+                afterCheckin.people.count { it.name.contains("Jordan", ignoreCase = true) } == 1,
+            )
+            assertTrue(
+                "The phone's name should be kept as another name, reply was: ${checkin.reply}",
+                afterCheckin.person(jordan)!!.otherNames.any { NameKey.exact(it) == NameKey.exact("Jordan (Quanta Health)") },
+            )
+            assertTrue("The conversation should be saved on Jordan", afterCheckin.interactionsFor(jordan).isNotEmpty())
 
             // A delete only ever queues for the user.
             val deletion = liveTurn(agent, "delete request", "Please delete Priya Raman from my network.")

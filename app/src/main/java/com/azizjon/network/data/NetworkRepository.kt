@@ -13,6 +13,8 @@ data class PersonDraft(
     val notes: String = "",
     val isSelf: Boolean = false,
     val archived: Boolean = false,
+    /** Other names as typed, one per line. */
+    val aliases: String = "",
 )
 
 data class NetworkSnapshot(
@@ -95,10 +97,15 @@ class NetworkRepository(private val dao: NetworkDao) {
             archived = draft.archived,
             createdAt = existing?.createdAt ?: now,
             updatedAt = now,
+            aliases = PersonNames.clean(draft.name, PersonNames.split(draft.aliases)),
         )
         require(person.name.isNotBlank()) { "Name is required" }
         return dao.savePerson(person)
     }
+
+    /** The check-in's "Already saved": [name] becomes one of the person's other names. */
+    suspend fun addOtherName(personId: Long, name: String): PersonEntity =
+        dao.addAlias(personId, name, System.currentTimeMillis())
 
     suspend fun deletePerson(person: PersonEntity) = dao.deletePerson(person)
 

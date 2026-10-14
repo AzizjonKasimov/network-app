@@ -1,5 +1,6 @@
 package com.azizjon.network.ai
 
+import com.azizjon.network.checkin.NameKey
 import com.azizjon.network.data.AffiliationEntity
 import com.azizjon.network.data.AssistantStore
 import com.azizjon.network.data.CapabilityEntity
@@ -9,6 +10,7 @@ import com.azizjon.network.data.InteractionEntity
 import com.azizjon.network.data.NeedEntity
 import com.azizjon.network.data.NetworkSnapshot
 import com.azizjon.network.data.PersonEntity
+import com.azizjon.network.data.PersonNames
 import com.azizjon.network.data.RecordKind
 import com.azizjon.network.data.RecordRef
 import com.azizjon.network.search.NetworkMatcher
@@ -114,7 +116,9 @@ class AssistantTools(
         val byName = PersonResolver.resolve(index.snapshot.people, query, includeArchived)
         (listOfNotNull(byName.exact) + byName.suggestions).forEach { person ->
             if (matches.length() < MAX_MATCHES && seen.add(person.id)) {
-                matches.put(brief(index, person).put("matched", JSONArray().put(JSONObject().put("kind", "Name").put("text", person.name))))
+                val name = PersonResolver.matchedName(person, query)
+                val matched = JSONObject().put("kind", if (name == person.name) "Name" else "Other name").put("text", name)
+                matches.put(brief(index, person).put("matched", JSONArray().put(matched)))
             }
         }
         NetworkMatcher.search(index.snapshot, query).forEach { result ->
@@ -146,6 +150,7 @@ class AssistantTools(
         return JSONObject()
             .put("id", person.id)
             .put("name", person.name)
+            .put("other_names", JSONArray(person.otherNames))
             .apply {
                 if (person.isSelf) put("is_user", true)
                 if (person.archived) put("archived", true)
@@ -259,11 +264,20 @@ class AssistantTools(
 
     private suspend fun createPerson(input: JSONObject, log: AgentTurnLog): JSONObject {
         val name = input.requiredText("name", 200)
+        val otherNames = readOtherNames(input, "other_names")
         val allowSameName = input.optionalBoolean("allow_same_name") ?: false
-        val existing = store.snapshot().people.filter { it.name.trim().equals(name, ignoreCase = true) }
+        val people = store.snapshot().people
+        val existing = people.filter { it.name.trim().equals(name, ignoreCase = true) }
         if (existing.isNotEmpty() && !allowSameName) {
             throw ToolFailure(
                 "$name is already saved as person ${existing.joinToString { it.id.toString() }}. " +
+                    "Use that person, or set allow_same_name if the user said this is somebody else.",
+            )
+        }
+        val alsoKnownAs = people.filter { person -> person.otherNames.any { NameKey.exact(it) == NameKey.exact(name) } }
+        if (alsoKnownAs.isNotEmpty() && !allowSameName) {
+            throw ToolFailure(
+                "$name is another name of ${alsoKnownAs.joinToString { "${it.name} (person ${it.id})" }}. " +
                     "Use that person, or set allow_same_name if the user said this is somebody else.",
             )
         }
@@ -279,11 +293,12 @@ class AssistantTools(
                     notes = input.optionalText("profile_notes", 4_000).orEmpty(),
                     createdAt = now,
                     updatedAt = now,
+                    aliases = PersonNames.clean(name, otherNames),
                 ),
             )
         }
         log.people += person.id
-        log.saved += "Added $name"
+        log.saved += if (person.otherNames.isEmpty()) "Added $name" else "Added $name, also known as ${person.otherNames.quotedList()}"
         log.memory += "created person ${person.id} ($name)"
         return JSONObject().put("person_id", person.id).put("name", name)
     }
@@ -304,6 +319,18 @@ class AssistantTools(
         input.optionalText("profile_notes", 4_000)?.let { if (it != before.notes) { after = after.copy(notes = it); fields += "profile notes" } }
         input.optionalText("contact", 500)?.let { if (it != before.contact) { after = after.copy(contact = it); fields += "contact" } }
         input.optionalBoolean("archived")?.let { if (it != before.archived) after = after.copy(archived = it) }
+        val add = readOtherNames(input, "add_other_names")
+        val remove = readOtherNames(input, "remove_other_names")
+        remove.filter { name -> before.otherNames.none { it.sameNameAs(name) } }.takeIf { it.isNotEmpty() }?.let { unknown ->
+            val saved = before.otherNames.takeIf { it.isNotEmpty() }?.let { "Their other names are ${it.quotedList()}." } ?: "They have none."
+            throw ToolFailure("${unknown.quotedList()} is not one of ${before.name}'s other names. $saved")
+        }
+        if (add.isNotEmpty() || remove.isNotEmpty() || after.name != before.name) {
+            val kept = before.otherNames.filterNot { name -> remove.any { it.sameNameAs(name) } }
+            val count = (kept + add).map(NameKey::exact).filter { it.isNotEmpty() && it != NameKey.exact(after.name) }.distinct().size
+            if (count > PersonNames.MAX_NAMES) throw ToolFailure("A person can have at most ${PersonNames.MAX_NAMES} other names.")
+            after = after.copy(aliases = PersonNames.clean(after.name, kept + add))
+        }
         if (after == before) throw ToolFailure("Nothing would change: ${before.name}'s profile already says that.")
 
         val now = clock().toEpochMilli()
@@ -314,10 +341,17 @@ class AssistantTools(
         if (after.archived != before.archived) {
             log.saved += if (after.archived) "Archived ${after.name}" else "Brought ${after.name} back from the archive"
         }
+        val addedNames = after.otherNames.filter { name -> before.otherNames.none { it.sameNameAs(name) } }
+        val removedNames = before.otherNames.filter { name -> after.otherNames.none { it.sameNameAs(name) } }
+        if (addedNames.isNotEmpty()) {
+            log.saved += "Saved ${addedNames.quotedList()} as ${if (addedNames.size == 1) "another name" else "other names"} for ${after.name}"
+        }
+        if (removedNames.isNotEmpty()) log.saved += "Removed ${removedNames.quotedList()} from ${after.name}'s other names"
         val changed = buildList {
             if (after.name != before.name) add("name")
             addAll(fields)
             if (after.archived != before.archived) add("archived")
+            if (after.aliases != before.aliases) add("other names")
         }
         log.memory += "updated person $personId (${after.name}): ${changed.joinToString()}"
         return JSONObject().put("person_id", personId).put("changed", JSONArray(changed))
@@ -450,6 +484,16 @@ class AssistantTools(
             normalizeText(text) == normalizeText(other.text) &&
             organization.equals(other.organization, ignoreCase = true) &&
             role.equals(other.role, ignoreCase = true)
+    }
+
+    /** Other names passed for a person, each no longer than a name may be. */
+    private fun readOtherNames(input: JSONObject, key: String): List<String> {
+        val names = input.optionalStrings(key).orEmpty()
+        if (names.size > PersonNames.MAX_NAMES) throw ToolFailure("Pass at most ${PersonNames.MAX_NAMES} names in $key.")
+        names.firstOrNull { it.length > PersonNames.MAX_LENGTH }?.let { long ->
+            throw ToolFailure("\"${long.take(40)}…\" is too long for a name; keep each under ${PersonNames.MAX_LENGTH} characters.")
+        }
+        return names
     }
 
     /** The pages a web lookup came from. Empty for a note about what the user said. */
@@ -860,6 +904,7 @@ class AssistantTools(
             .put("id", person.id)
             .put("name", person.name)
             .apply {
+                if (person.otherNames.isNotEmpty()) put("other_names", JSONArray(person.otherNames))
                 if (person.isSelf) put("is_user", true)
                 if (person.archived) put("archived", true)
                 current.filterNot { it.isEducation }.joinToString("; ") { it.label }.takeIf(String::isNotEmpty)?.let { put("work", it) }
@@ -980,3 +1025,8 @@ private fun List<String>.joinToEnglish(): String = when (size) {
     1 -> single()
     else -> dropLast(1).joinToString(", ") + " and " + last()
 }
+
+private fun List<String>.quotedList(): String = map { "\"$it\"" }.joinToEnglish()
+
+/** The same name as written, case, accents, emoji, and word order aside. */
+private fun String.sameNameAs(other: String): Boolean = NameKey.exact(this) == NameKey.exact(other)

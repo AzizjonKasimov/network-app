@@ -11,13 +11,15 @@ import com.azizjon.network.data.NeedEntity
 import com.azizjon.network.data.NetworkSnapshot
 import com.azizjon.network.data.PersonEntity
 
-/** Someone from the address book or a chat app who is not in the network yet. */
+/** Someone from the address book or a chat app who is not in the network, at least not under this name. */
 data class NewPersonItem(
     val name: String,
     val refs: List<String>,
     /** Where they turned up, most recent first. */
     val sources: List<String>,
     val lastSeenAt: Long,
+    /** Saved people whose names come close, offered first when the user says this is someone saved. */
+    val maybe: List<PersonEntity> = emptyList(),
 )
 
 /** Someone in the network the user has chatted with since last saving anything about them. */
@@ -94,26 +96,27 @@ object CheckinRules {
     const val MAX_RECORD_ITEMS = 5
 
     fun build(rows: List<CheckinEntity>, snapshot: NetworkSnapshot, now: Long): CheckinList {
-        val peopleByKey = snapshot.people.groupBy { NameKey.of(it.name) }
+        val names = PeopleByName(snapshot.people)
         val peopleById = snapshot.people.associateBy { it.id }
         val lastNoteAt = snapshot.interactions.groupBy { it.personId }.mapValues { (_, notes) -> notes.maxOf { it.createdAt } }
         val recordRows = rows.filter { it.source == SOURCE_RECORDS }.associateBy { it.ref }
 
-        val newPeople = mutableListOf<NewPersonItem>()
-        val talkedTo = mutableListOf<TalkedItem>()
-        rows.filter { it.source != SOURCE_RECORDS }
-            .groupBy { NameKey.of(it.name) }
-            .filterKeys(String::isNotEmpty)
-            .forEach { (key, group) ->
-                val matches = peopleByKey[key].orEmpty()
-                if (matches.isEmpty()) {
-                    newPerson(group, now)?.let(newPeople::add)
-                } else {
-                    // Two saved people with the same name: asking would mean guessing which.
-                    val person = matches.singleOrNull()?.takeUnless { it.archived || it.isSelf } ?: return@forEach
-                    talked(person, group, lastNoteAt[person.id] ?: 0L, now)?.let(talkedTo::add)
-                }
+        // Each name is matched on its own: one person can turn up under several
+        // names, and two names that differ only in their brackets can be two people.
+        val byPerson = mutableMapOf<Long, MutableList<CheckinEntity>>()
+        val unknown = mutableListOf<CheckinEntity>()
+        rows.filter { it.source != SOURCE_RECORDS && NameKey.of(it.name).isNotEmpty() }.forEach { row ->
+            val matches = names.find(row.name)
+            if (matches.isEmpty()) {
+                unknown += row
+            } else {
+                // Two saved people answer to this name: asking would mean guessing which.
+                val person = matches.singleOrNull()?.takeUnless { it.archived || it.isSelf } ?: return@forEach
+                byPerson.getOrPut(person.id) { mutableListOf() } += row
             }
+        }
+        val talkedTo = byPerson.mapNotNull { (id, group) -> talked(peopleById.getValue(id), group, lastNoteAt[id] ?: 0L, now) }
+        val newPeople = unknown.groupBy { NameKey.exact(it.name) }.values.mapNotNull { group -> newPerson(group, now, names) }
 
         fun quiet(ref: String): Boolean {
             val row = recordRows[ref] ?: return false
@@ -151,7 +154,7 @@ object CheckinRules {
      * "added" on any of them settles the name; "later" waits out its week
      * unless they turn up somewhere new meanwhile.
      */
-    private fun newPerson(group: List<CheckinEntity>, now: Long): NewPersonItem? {
+    private fun newPerson(group: List<CheckinEntity>, now: Long, names: PeopleByName): NewPersonItem? {
         if (group.any { it.status == STATUS_NEVER || it.status == STATUS_DONE }) return null
         val due = group.any { it.status == STATUS_OPEN || (it.status == STATUS_LATER && now - it.statusAt >= LATER_PEOPLE) }
         if (!due) return null
@@ -161,6 +164,7 @@ object CheckinRules {
             refs = group.map { it.ref },
             sources = group.sortedByDescending { it.lastSeenAt }.map { it.source }.distinct(),
             lastSeenAt = latest.lastSeenAt,
+            maybe = names.likely(latest.name),
         )
     }
 

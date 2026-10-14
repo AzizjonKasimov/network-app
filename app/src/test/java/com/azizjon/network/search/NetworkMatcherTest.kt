@@ -52,6 +52,16 @@ class NetworkMatcherTest {
         assertTrue(NetworkMatcher.search(snapshot, "Android").isEmpty())
     }
 
+    @Test
+    fun otherNamesAreSearchedLikeTheName() {
+        val snapshot = NetworkSnapshot(people = listOf(person(1, "Minsu Kim").copy(aliases = "김민수")))
+
+        val result = NetworkMatcher.search(snapshot, "김민수").single()
+
+        assertEquals("Profile", result.evidence.single().kind)
+        assertTrue(result.evidence.single().text.contains("김민수"))
+    }
+
     private fun person(id: Long, name: String, archived: Boolean = false) = PersonEntity(
         id = id,
         name = name,

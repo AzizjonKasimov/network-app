@@ -141,6 +141,21 @@ abstract class NetworkDao {
     @Query("UPDATE people SET updatedAt = :updatedAt WHERE id = :personId")
     abstract suspend fun touchPerson(personId: Long, updatedAt: Long)
 
+    @Query("UPDATE people SET aliases = :aliases, updatedAt = :updatedAt WHERE id = :personId")
+    protected abstract suspend fun setAliases(personId: Long, aliases: String, updatedAt: Long)
+
+    /**
+     * Adds one other name and leaves every other column alone, so linking a
+     * check-in name cannot overwrite an edit the assistant just made.
+     */
+    @Transaction
+    open suspend fun addAlias(personId: Long, name: String, now: Long): PersonEntity {
+        val person = person(personId) ?: throw IllegalArgumentException("That person no longer exists")
+        val aliases = PersonNames.clean(person.name, person.otherNames + name)
+        setAliases(personId, aliases, now)
+        return person.copy(aliases = aliases, updatedAt = now)
+    }
+
     @Query("SELECT * FROM people ORDER BY id")
     abstract suspend fun allPeople(): List<PersonEntity>
 
@@ -271,7 +286,8 @@ abstract class NetworkDao {
      * Every note and record moves, so nothing is lost with the deleted row. The
      * kept profile wins wherever it already says something; the duplicate only
      * fills fields the kept one left empty, and its tags and notes are added
-     * rather than dropped.
+     * rather than dropped. Its name joins the kept entry's other names, since a
+     * duplicate usually exists because the person turned up under that name.
      */
     @Transaction
     open suspend fun mergePeople(keepId: Long, mergeId: Long, now: Long): MergeResult {
@@ -295,6 +311,7 @@ abstract class NetworkDao {
                 isSelf = keep.isSelf || merge.isSelf,
                 archived = keep.archived && merge.archived,
                 updatedAt = now,
+                aliases = PersonNames.clean(keep.name, keep.otherNames + merge.name + merge.otherNames),
             ),
         )
         deletePersonById(mergeId)

@@ -259,6 +259,46 @@ class AssistantToolsInstrumentedTest {
         assertEquals("design, investors", kept.tags.lowercase())
         assertEquals(keep, after.interactions.single().personId)
         assertEquals(keep, after.needs.single().personId)
+        // The duplicate's name is how the person turned up, so it stays findable.
+        assertEquals(listOf("Ana L."), kept.otherNames)
+    }
+
+    /** What the assistant does with a check-in name that belongs to someone saved under another. */
+    @Test
+    fun otherNamesAreFoundReadAddedRemovedAndUndone() = runBlocking {
+        val setup = AgentTurnLog()
+        val jordan = ok(setup, "create_person", JSONObject().put("name", "Jordan Kim").put("other_names", JSONArray().put("조던"))).getLong("person_id")
+        assertEquals(listOf("Added Jordan Kim, also known as \"조던\""), setup.saved)
+
+        val log = AgentTurnLog()
+        val result = ok(
+            log,
+            "update_person",
+            JSONObject().put("person_id", jordan)
+                .put("add_other_names", JSONArray().put("Jordan (Quanta Health)").put("jordan kim"))
+                .put("remove_other_names", JSONArray().put("조던")),
+        )
+        assertTrue(result.getJSONArray("changed").toString().contains("other names"))
+        assertEquals("the main name is not repeated", listOf("Jordan (Quanta Health)"), store.person(jordan)!!.otherNames)
+        assertEquals(
+            listOf("Saved \"Jordan (Quanta Health)\" as another name for Jordan Kim", "Removed \"조던\" from Jordan Kim's other names"),
+            log.saved,
+        )
+
+        val found = ok(AgentTurnLog(), "find_people", JSONObject().put("query", "Jordan (Quanta Health)")).getJSONArray("matches").getJSONObject(0)
+        assertEquals(jordan, found.getLong("id"))
+        assertEquals("Other name", found.getJSONArray("matched").getJSONObject(0).getString("kind"))
+        val read = ok(AgentTurnLog(), "get_person", JSONObject().put("person_id", jordan))
+        assertEquals("Jordan (Quanta Health)", read.getJSONArray("other_names").getString(0))
+
+        // A name already saved changes nothing, and someone else's other name is not a new person.
+        error(AgentTurnLog(), "update_person", JSONObject().put("person_id", jordan).put("add_other_names", JSONArray().put("jordan (quanta health)")))
+        assertTrue(error(AgentTurnLog(), "update_person", JSONObject().put("person_id", jordan).put("remove_other_names", JSONArray().put("JK")))
+            .contains("not one of Jordan Kim's other names"))
+        assertTrue(error(AgentTurnLog(), "create_person", JSONObject().put("name", "Jordan (Quanta Health)")).contains("another name of Jordan Kim"))
+
+        store.undo(log.changes, now.toEpochMilli())
+        assertEquals(listOf("조던"), store.person(jordan)!!.otherNames)
     }
 
     @Test

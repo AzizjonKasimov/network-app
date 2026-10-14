@@ -1,5 +1,6 @@
 package com.azizjon.network.ai
 
+import com.azizjon.network.checkin.NameKey
 import com.azizjon.network.data.RecordRef
 import com.azizjon.network.data.RowChange
 
@@ -53,7 +54,9 @@ sealed interface PendingAction {
         val mergeName: String,
     ) : PendingAction {
         override val description: String
-            get() = "Merge $mergeName into $keepName: every note and record moves to $keepName, then $mergeName is deleted"
+            get() = "Merge $mergeName into $keepName: every note and record moves to $keepName" +
+                (if (NameKey.exact(mergeName) != NameKey.exact(keepName)) ", which keeps $mergeName as another name," else "") +
+                " then $mergeName is deleted"
     }
 }
 

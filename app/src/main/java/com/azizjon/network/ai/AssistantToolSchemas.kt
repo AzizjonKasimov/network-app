@@ -23,7 +23,7 @@ object AssistantToolSchemas {
 [
   {
     "name": "list_people",
-    "description": "Lists saved people, one entry each: id, name, current work and study, location, relationship, tags, how many notes and records they have, and the date of their latest note. Use it to see who is in the network or to answer questions about the network as a whole. Archived people are left out unless include_archived is true. Long lists come in pages; pass next_offset to continue.",
+    "description": "Lists saved people, one entry each: id, name, other names, current work and study, location, relationship, tags, how many notes and records they have, and the date of their latest note. Use it to see who is in the network or to answer questions about the network as a whole. Archived people are left out unless include_archived is true. Long lists come in pages; pass next_offset to continue.",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -34,7 +34,7 @@ object AssistantToolSchemas {
   },
   {
     "name": "find_people",
-    "description": "Finds saved people by name, or by words in their profile, positions, education, needs, capabilities, background, and notes. Returns the closest matches with the text that matched. Use it before creating anyone, to check whether they are already saved. It matches words, not meaning, so use browse_records to judge who could help with something.",
+    "description": "Finds saved people by name or other name, or by words in their profile, positions, education, needs, capabilities, background, and notes. Returns the closest matches with the text that matched. Use it before creating anyone, to check whether they are already saved. It matches words, not meaning, so use browse_records to judge who could help with something.",
     "input_schema": {
       "type": "object",
       "required": ["query"],
@@ -88,12 +88,13 @@ object AssistantToolSchemas {
   },
   {
     "name": "create_person",
-    "description": "Saves a new person. Check with find_people first. Fails when someone with the same name is already saved, unless allow_same_name is true because the user said this is a different person.",
+    "description": "Saves a new person. Check with find_people first. Fails when someone with the same name or other name is already saved, unless allow_same_name is true because the user said this is a different person.",
     "input_schema": {
       "type": "object",
       "required": ["name"],
       "properties": {
         "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "other_names": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 200 }, "description": "Other names they go by, exactly as written." },
         "location": { "type": "string", "maxLength": 500 },
         "relationship": { "type": "string", "maxLength": 500, "description": "How the user knows them." },
         "tags": { "type": "string", "maxLength": 500, "description": "Comma-separated." },
@@ -112,6 +113,8 @@ object AssistantToolSchemas {
       "properties": {
         "person_id": { "type": "integer" },
         "name": { "type": "string", "maxLength": 200 },
+        "add_other_names": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 200 }, "description": "Names to add to their other names, exactly as written. The ones already saved stay." },
+        "remove_other_names": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 200 }, "description": "Saved other names to take off." },
         "location": { "type": "string", "maxLength": 500 },
         "relationship": { "type": "string", "maxLength": 500, "description": "How the user knows them." },
         "tags": { "type": "string", "maxLength": 500, "description": "Comma-separated. Replaces the existing tags." },
@@ -261,7 +264,7 @@ object AssistantToolSchemas {
   },
   {
     "name": "merge_people",
-    "description": "Asks the user to confirm merging two saved entries for the same person: every note and record moves to keep_person_id, empty profile fields on that entry are filled from the other, and the other entry is deleted. Nothing happens until they confirm on a card under your reply.",
+    "description": "Asks the user to confirm merging two saved entries for the same person: every note and record moves to keep_person_id, empty profile fields on that entry are filled from the other, the other entry's name and other names become other names of the kept one, and the other entry is deleted. Nothing happens until they confirm on a card under your reply.",
     "input_schema": {
       "type": "object",
       "required": ["keep_person_id", "merge_person_id"],
