@@ -141,13 +141,35 @@ To read the reports on a development machine, after the phone has backed up:
 pwsh ./scripts/read-feedback.ps1
 ```
 
-It fetches the encrypted backup from the private data repository, asks for the backup passphrase, and writes only the reports to `assistant-feedback.json` in the repository root, which is gitignored. The rest of the backup is decrypted in memory to reach them and never touches disk. The passphrase is typed at the prompt and is never written to a file, passed as an argument, echoed, or kept in shell history. Pass `-EnvelopeFile <path>` to decrypt a backup file you already have instead of fetching one.
+It fetches the encrypted backup from the private data repository, asks for the backup passphrase, and writes only the reports to `assistant-feedback.json` in the repository root, which is gitignored. The rest of the backup is decrypted in memory to reach them and never touches disk. The passphrase is typed at the prompt, or in a small window when the script runs without a console, and is never written to a file, passed as an argument, echoed, or kept in shell history. Pass `-EnvelopeFile <path>` to decrypt a backup file you already have instead of fetching one.
 
 The loop is: label bad answers as they happen, back up, fix the faults, delete the reports that are done, back up again. Contact values never reach a report at all: a tool call that set a contact value is recorded without the value.
 
+## Looking people up from a computer
+
+`scripts/network-lookup.ps1` reads the encrypted backup on a development machine and prints only the people asked about, for the owner or a coding agent the owner lets use it:
+
+```bash
+pwsh ./scripts/network-lookup.ps1 -Name 'Synthetic Person', 'Synthetic Other'
+pwsh ./scripts/network-lookup.ps1 -Search 'robotics hiring'
+pwsh ./scripts/network-lookup.ps1 -Self
+```
+
+- `-Name` shows the whole profile of each person whose name or other name matches, in any word order. A name that matches more than five people lists only their names.
+- `-Search` lists the people who have a record holding every word, with the records that matched. Archived people are left out unless you add `-IncludeArchived`.
+- `-Self` shows your own profile, and `-AllNotes` shows every note rather than the latest ten.
+
+A profile carries what the assistant's tools may read and nothing more: never a contact value, only whether one is saved. Assistant reports in the same backup are not read. The script writes nothing to disk and leaves the backup untouched.
+
+The backup passphrase is typed for every lookup: at the prompt in a console, or, when the script runs without one, as it does from a coding agent's shell, in a small window that names the lookup. **Cancel** refuses it. The passphrase is never stored, passed as an argument, or echoed.
+
+Whatever a lookup prints is seen by whoever ran it. A coding agent sends it to its AI provider and keeps it in its session history on the computer, so let only an agent you would trust with those people's details run it.
+
+`pwsh ./scripts/test-network-lookup.ps1` checks the lookup against a made-up encrypted backup, with no GitHub access.
+
 ## Privacy and backup
 
-Network data is sensitive third-party personal information. Android automatic cloud backup is disabled, and real records must never enter source control, tests, screenshots, logs, development prompts, or release artifacts.
+Network data is sensitive third-party personal information. Android automatic cloud backup is disabled, and real records must never enter source control, tests, screenshots, logs, development prompts, or release artifacts. The one exception is a lookup the owner allows on their own computer, described under Looking people up from a computer.
 
 Gateway requests are an explicit exception chosen by the user. Each message sends the message, the bounded history described above, and then whatever records the assistant's tool calls read, never contact values. A web lookup you ask for also sends the person's name and a few identifying details to a web search, and the gateway fetches the pages. See [PRIVACY.md](PRIVACY.md) for the exact boundary. A token stored by a mobile app can be recovered from a rooted or otherwise compromised device, so issue one token per device and revoke it on the gateway if that device is lost.
 
