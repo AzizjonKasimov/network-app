@@ -11,9 +11,10 @@
     capabilities, positions, and background records in the same backup are
     decrypted in memory to reach it and are never saved to disk.
 
-    The passphrase is typed at the prompt and held only in memory. It is never
-    written to a file, passed as an argument, echoed, or stored in shell
-    history. Nothing is uploaded and the backup itself is left untouched.
+    The passphrase is typed at the prompt, or in a small window when the script
+    runs without a console, and held only in memory. It is never written to a
+    file, passed as an argument, echoed, or stored in shell history. Nothing is
+    uploaded and the backup itself is left untouched.
 
 .EXAMPLE
     .\scripts\read-feedback.ps1
@@ -31,81 +32,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'lib\NetworkBackup.ps1')
 
-if ($EnvelopeFile) {
-    if (-not (Test-Path -LiteralPath $EnvelopeFile)) { throw "$EnvelopeFile was not found." }
-    Write-Host "==> Reading $EnvelopeFile" -ForegroundColor Cyan
-    $envelopeText = Get-Content -LiteralPath $EnvelopeFile -Raw
-} else {
-
-$account = (gh api user --jq '.login' 2>$null)
-if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI is not authenticated. Run: gh auth login' }
-if ($account.Trim() -ne $Owner) { throw "GitHub CLI is authenticated as $account, not $Owner." }
-
-$visibility = (gh repo view "$Owner/$Repo" --json visibility --jq '.visibility' 2>$null)
-if ($LASTEXITCODE -ne 0) { throw "Backup repository $Owner/$Repo was not found." }
-if ($visibility.Trim() -ne 'PRIVATE') {
-    throw "$Owner/$Repo is $visibility. Refusing to read network data from a repository that is not private."
-}
-
-Write-Host "==> Fetching $Path from $Owner/$Repo@$Branch" -ForegroundColor Cyan
-# Must be requested raw. Decoding the base64 .content through a PowerShell
-# pipeline splits it per line and decodes each chunk separately, which
-# fabricates newlines inside every value.
-$envelopeText = gh api "repos/$Owner/$Repo/contents/${Path}?ref=$Branch" -H 'Accept: application/vnd.github.raw'
-if ($LASTEXITCODE -ne 0) { throw "Could not download $Path. Has the phone backed up yet?" }
-
-}
-
-$envelope = $envelopeText | ConvertFrom-Json
-if ($envelope.format -ne 'network-app-encrypted-backup' -or $envelope.version -ne 1) {
-    throw 'Unrecognised backup envelope. This script is older or newer than the app that wrote it.'
-}
-
-$secure = Read-Host -AsSecureString -Prompt 'Backup passphrase'
-$passphrase = [System.Net.NetworkCredential]::new('', $secure).Password
-if ([string]::IsNullOrWhiteSpace($passphrase)) { throw 'No passphrase entered.' }
-
+$envelope = Get-NetworkBackupEnvelope -Owner $Owner -Repo $Repo -Branch $Branch -Path $Path -EnvelopeFile $EnvelopeFile
+$secure = Read-NetworkBackupPassphrase -Purpose 'Read the assistant reports out of the network backup.'
 try {
-    $salt = [Convert]::FromBase64String($envelope.salt)
-    $iv = [Convert]::FromBase64String($envelope.iv)
-    $sealed = [Convert]::FromBase64String($envelope.ciphertext)
-    $iterations = [int]$envelope.iterations
-    if ($iterations -lt 100000 -or $iterations -gt 1000000) { throw 'Invalid backup key settings.' }
-
-    # Java's AES/GCM appends the 16-byte tag to the ciphertext; .NET wants them apart.
-    $tagLength = 16
-    $cipherText = New-Object byte[] ($sealed.Length - $tagLength)
-    $tag = New-Object byte[] $tagLength
-    [Array]::Copy($sealed, 0, $cipherText, 0, $cipherText.Length)
-    [Array]::Copy($sealed, $cipherText.Length, $tag, 0, $tagLength)
-
-    $kdf = [System.Security.Cryptography.Rfc2898DeriveBytes]::new(
-        $passphrase, $salt, $iterations, [System.Security.Cryptography.HashAlgorithmName]::SHA256)
-    try { $key = $kdf.GetBytes(32) } finally { $kdf.Dispose() }
-
-    try {
-        $aes = [System.Security.Cryptography.AesGcm]::new($key, $tagLength)
-    } catch [System.Management.Automation.MethodException] {
-        $aes = [System.Security.Cryptography.AesGcm]::new($key)
-    }
-    $plainBytes = New-Object byte[] $cipherText.Length
-    try {
-        $aad = [Text.Encoding]::UTF8.GetBytes('network-app-encrypted-backup:1')
-        $aes.Decrypt($iv, $cipherText, $tag, $plainBytes, $aad)
-    } catch {
-        throw 'Backup passphrase is incorrect, or the backup is damaged.'
-    } finally {
-        $aes.Dispose()
-        [Array]::Clear($key, 0, $key.Length)
-    }
-
-    $payload = [Text.Encoding]::UTF8.GetString($plainBytes) | ConvertFrom-Json
-    [Array]::Clear($plainBytes, 0, $plainBytes.Length)
+    $payload = Unprotect-NetworkBackup -Envelope $envelope -Passphrase $secure
 } finally {
-    $passphrase = $null
     $secure.Dispose()
-    [GC]::Collect()
 }
 
 $reports = @($payload.feedback)

@@ -92,6 +92,12 @@ Reading a report on another machine means decrypting that backup, which requires
 
 Deleting a report, or all of them, removes it from the database and marks a backup as needed so the next backup no longer carries it. People and records are unaffected.
 
+## Lookups on the owner's computer
+
+`scripts/network-lookup.ps1` lets the owner, or a coding agent the owner allows, read people from the encrypted backup on a computer. It downloads the backup from the private repository (refusing one that is public), asks for the backup passphrase for every lookup, at the console prompt or in a window that names the lookup, and decrypts it in memory. It prints only the people named, or the records that match a search; a name that matches more than five people prints their names only. A profile carries what the assistant's tools can read and never a contact value, and assistant reports are not read. The script writes nothing to disk.
+
+What it prints goes to whoever runs it. A coding agent sends it to its AI provider, under that provider's terms, and keeps it in its session history on the computer. The passphrase is never stored, passed as an argument, or shown, but anyone who learns it can decrypt the whole backup.
+
 ## Credentials and provider processing
 
 The access token is entered after installation and stored in Android encrypted preferences. It is excluded from Room and encrypted GitHub backups. A secret stored on a mobile device may still be extracted from a rooted, compromised, or reverse-engineered device; issue one token per device and revoke it on the gateway if a device is lost.
