@@ -5,7 +5,9 @@ import com.azizjon.network.ai.AgentClient
 import com.azizjon.network.ai.CaptureDraftStore
 import com.azizjon.network.ai.GatewaySettings
 import com.azizjon.network.backup.GitHubBackupSettings
+import com.azizjon.network.backup.GitHubContents
 import com.azizjon.network.backup.GitHubEncryptedBackupManager
+import com.azizjon.network.backup.GitHubFiles
 import com.azizjon.network.checkin.CheckinRepository
 import com.azizjon.network.checkin.CheckinSettings
 import com.azizjon.network.checkin.ContactsScanner
@@ -13,6 +15,8 @@ import com.azizjon.network.checkin.EveningCheckin
 import com.azizjon.network.data.AssistantStore
 import com.azizjon.network.data.NetworkDatabase
 import com.azizjon.network.data.NetworkRepository
+import com.azizjon.network.inbox.InboxStore
+import com.azizjon.network.inbox.PcInbox
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -26,9 +30,11 @@ class NetworkApplication : Application() {
     }
     val assistantStore: AssistantStore by lazy { AssistantStore(NetworkDatabase.get(this)) }
     val backupSettings: GitHubBackupSettings by lazy { GitHubBackupSettings(this) }
+    private val gitHubFiles: GitHubFiles by lazy { GitHubContents() }
     val backupManager: GitHubEncryptedBackupManager by lazy {
-        GitHubEncryptedBackupManager(repository, backupSettings)
+        GitHubEncryptedBackupManager(repository, backupSettings, gitHubFiles)
     }
+    val pcInbox: PcInbox by lazy { PcInbox(gitHubFiles, InboxStore(this)) }
     val gatewaySettings: GatewaySettings by lazy { GatewaySettings(this) }
     val agentClient: AgentClient by lazy { AgentClient(gatewaySettings::token) }
     val captureDraftStore: CaptureDraftStore by lazy { CaptureDraftStore(this) }

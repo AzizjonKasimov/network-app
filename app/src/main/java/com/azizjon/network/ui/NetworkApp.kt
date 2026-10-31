@@ -50,6 +50,9 @@ fun NetworkApp(viewModel: NetworkViewModel) {
     val checkinList by viewModel.checkinList.collectAsStateWithLifecycle()
     val checkinSettings by viewModel.checkinSettings.collectAsStateWithLifecycle()
     val requestedSection by viewModel.requestedSection.collectAsStateWithLifecycle()
+    val inboxDrafts by viewModel.inboxDrafts.collectAsStateWithLifecycle()
+    val inboxState by viewModel.inboxState.collectAsStateWithLifecycle()
+    val inboxBusy by viewModel.inboxBusy.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var section by rememberSaveable { mutableStateOf(AppSection.CHAT) }
@@ -71,6 +74,12 @@ fun NetworkApp(viewModel: NetworkViewModel) {
         viewModel.clearRequestedSection()
     }
 
+    // Opening the Assistant looks for drafts from the PC too, not only coming
+    // back to the app; the check spaces itself out.
+    LaunchedEffect(section) {
+        if (section == AppSection.CHAT) viewModel.checkInbox()
+    }
+
     // Back from a person returns to the list they were opened from instead of
     // closing the app.
     BackHandler(enabled = selectedPersonId != null) { selectedPersonId = null }
@@ -87,7 +96,11 @@ fun NetworkApp(viewModel: NetworkViewModel) {
                             selected = section == item,
                             onClick = { section = item },
                             icon = {
-                                val count = if (item == AppSection.CHECKIN) checkinList.count else 0
+                                val count = when (item) {
+                                    AppSection.CHECKIN -> checkinList.count
+                                    AppSection.CHAT -> inboxDrafts.size
+                                    else -> 0
+                                }
                                 BadgedBox(badge = { if (count > 0) Badge { Text(if (count > 99) "99+" else count.toString()) } }) {
                                     Text(item.label.take(1))
                                 }
@@ -141,6 +154,7 @@ fun NetworkApp(viewModel: NetworkViewModel) {
                             focusRequested = composerFocusRequested,
                             consentRequested = consentRequested,
                             feedbackTarget = feedbackTarget,
+                            inboxDrafts = inboxDrafts,
                             onDraftChange = viewModel::updateComposerDraft,
                             onAttachPhotos = viewModel::attachPhotos,
                             onRemovePhoto = viewModel::removePhoto,
@@ -157,6 +171,9 @@ fun NetworkApp(viewModel: NetworkViewModel) {
                             onDismissFeedback = viewModel::dismissFeedback,
                             onSubmitFeedback = viewModel::submitFeedback,
                             onNewChat = viewModel::startNewChat,
+                            onSendInboxDraft = viewModel::sendInboxDraft,
+                            onEditInboxDraft = viewModel::editInboxDraft,
+                            onDiscardInboxDraft = viewModel::discardInboxDraft,
                         )
                         AppSection.CHECKIN -> CheckinScreen(
                             list = checkinList,
@@ -194,6 +211,8 @@ fun NetworkApp(viewModel: NetworkViewModel) {
                             gatewaySettingsState = gatewaySettingsState,
                             updateState = updateState,
                             feedbackState = feedbackState,
+                            inboxState = inboxState,
+                            inboxBusy = inboxBusy,
                             onSaveAccessToken = viewModel::saveAccessToken,
                             onClearAccessToken = viewModel::clearAccessToken,
                             onRevokeAssistantConsent = viewModel::revokeAssistantConsent,
@@ -203,6 +222,8 @@ fun NetworkApp(viewModel: NetworkViewModel) {
                             onRestore = viewModel::restoreFromGitHub,
                             onDeleteFeedback = viewModel::deleteFeedback,
                             onClearFeedback = viewModel::clearAllFeedback,
+                            onSetInboxEnabled = viewModel::setInboxEnabled,
+                            onCheckInbox = { viewModel.checkInbox(fromSettings = true) },
                         )
                     }
                 }

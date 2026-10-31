@@ -4,7 +4,7 @@ Network App stores private information about people, conversations, needs, and c
 
 ## Local operation
 
-Manual person and record editing, local evidence-backed matching, browsing, archive/delete controls, and encrypted backup status work without the gateway. Stored records leave the phone only through a user-requested AI operation or the separately configured encrypted GitHub backup.
+Manual person and record editing, local evidence-backed matching, browsing, archive/delete controls, and encrypted backup status work without the gateway. Stored records leave the phone only through a user-requested AI operation or the separately configured encrypted GitHub backup. Drafts that the user's PC queues arrive the other way, encrypted to the phone, through the same private repository (see Drafts from your PC).
 
 ## The assistant
 
@@ -68,6 +68,16 @@ Questions about stale needs and positions and about recently added people withou
 
 What the check-in collects (names, where and when they turned up, and the user's answers) is kept in a separate Room table on the phone. It is not included in the encrypted backup, the assistant's tools cannot read it, and nothing about it is sent to the gateway. A name leaves the phone only if the user taps **Add** or **Add a note** and then sends the message that starts, exactly like typing it. Tapping **Already saved** and picking a person copies that one name into the person's other names; from then on it is part of the network like any profile field, so it is kept in the encrypted backup and the assistant's tools can read it. The assistant may also save a name the user sent it as another name. Turning a source off stops new collection; revoking contacts permission or notification access in Android settings does the same.
 
+## Drafts from your PC
+
+This is off until the user turns on **Settings → Drafts from your PC**, which needs the GitHub backup settings. Turning it on makes an elliptic-curve (P-256) key pair on the phone. The private key is kept in Android encrypted preferences beside the GitHub token and the backup passphrase; it is never in Room or the backup and never leaves the phone. After checking that the data repository is private, the phone writes the public key to an inbox folder named after the backup path, `network-backup-inbox/key.json` by default.
+
+`scripts/queue-draft.ps1` on the user's PC encrypts each draft before it uploads it: a one-time key pair per draft, an ECDH agreement with the phone's public key, a key derived with SHA-256, and AES-256-GCM. The repository therefore holds only ciphertext. GitHub, and anything else that can read the repository, sees when drafts were queued and taken, file names made of the time and a random id, and roughly how long each draft is. The script refuses a repository that is not private, reads the draft from the pipeline or a file rather than a command-line argument, never prints it, and keeps no secret on the PC. It pins the fingerprint of the phone's key the first time, refuses a different key afterwards, and accepts a new one only when the user confirms it at the keyboard.
+
+The phone takes waiting drafts whenever the app comes to the front or the Assistant tab opens: it saves each one in encrypted preferences and then deletes it from the repository. Deleted files stay in the repository's git history as ciphertext, like earlier backups. Only the phone's private key opens them, and turning the feature off deletes that key together with the inbox folder. Drafts never enter Room, the backup, or reports while they wait. A draft reaches the AI gateway only when the user taps **Send**, exactly as if it had been typed, and from then on it is an ordinary message: replayed with later messages and copied into a report on that reply like any other. **Discard** deletes it from the phone.
+
+Anyone able to write to the private repository could queue a forged draft. It can only appear as a card the user reads; nothing is sent or saved until the user sends it, and the gateway still never opens an address the model composed.
+
 ## Answers about the network
 
 To answer a question, the assistant reads records through the same tool calls described above: a directory of people, records across the network (closed needs, inactive capabilities, past positions, and archived people only when it asks for them), keyword matches, notes in a date range, or one person in full. Tool results are paged, so a large network is read in parts rather than all at once. Answers are suggestions based on saved records, not facts or proof of willingness or availability. Network App never contacts or introduces anyone.
@@ -94,4 +104,4 @@ Request content is processed by the gateway operator and then by Anthropic under
 
 Missing keys, rejected requests, invalid responses, unknown record IDs, quota limits, timeouts, and offline failures do not trigger fallback writes. A photo that cannot be read is left out with a message. The draft remains editable, and local search remains available. Removing the access token or revoking the assistant's permission stops later AI requests but does not delete requests already processed by the gateway operator or Anthropic.
 
-Deleting a person locally cascades to linked interactions, needs, capabilities, positions, education, and background records. Deleting a source note clears provenance links without deleting the records derived from it. Encrypted GitHub backups retain data until replaced or deleted from the configured private repository.
+Deleting a person locally cascades to linked interactions, needs, capabilities, positions, education, and background records. Deleting a source note clears provenance links without deleting the records derived from it. Encrypted GitHub backups retain data until replaced or deleted from the configured private repository, and their earlier versions remain in its git history; so do drafts from the PC, readable only with the phone's inbox key.

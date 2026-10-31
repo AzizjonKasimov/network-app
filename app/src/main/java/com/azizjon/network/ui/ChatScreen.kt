@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,6 +16,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -22,6 +24,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -30,6 +33,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -50,6 +54,7 @@ import com.azizjon.network.ai.ChatState
 import com.azizjon.network.ai.PhotoLimits
 import com.azizjon.network.data.NetworkSnapshot
 import com.azizjon.network.feedback.AiFeedbackLabel
+import com.azizjon.network.inbox.InboxDraft
 
 /**
  * The single conversational surface for recording, correcting, and asking.
@@ -69,6 +74,7 @@ fun ChatScreen(
     focusRequested: Boolean,
     consentRequested: Boolean,
     feedbackTarget: ChatMessage?,
+    inboxDrafts: List<InboxDraft>,
     onDraftChange: (String) -> Unit,
     onAttachPhotos: (List<Uri>, Boolean) -> Unit,
     onRemovePhoto: (Long) -> Unit,
@@ -85,6 +91,9 @@ fun ChatScreen(
     onDismissFeedback: () -> Unit,
     onSubmitFeedback: (AiFeedbackLabel, String) -> Unit,
     onNewChat: () -> Unit,
+    onSendInboxDraft: (String) -> Unit,
+    onEditInboxDraft: (String) -> Unit,
+    onDiscardInboxDraft: (String) -> Unit,
 ) {
     val listState = rememberLazyListState()
     val busy = chat.phase.busy
@@ -106,7 +115,8 @@ fun ChatScreen(
         )
         Box(Modifier.weight(1f)) {
             if (chat.messages.isEmpty()) {
-                EmptyChatState(Modifier.align(Alignment.Center))
+                // A waiting draft is the thing to do next, and the hints would be squeezed beside it.
+                if (inboxDrafts.isEmpty()) EmptyChatState(Modifier.align(Alignment.Center))
             } else {
                 LazyColumn(
                     state = listState,
@@ -131,6 +141,18 @@ fun ChatScreen(
                     }
                 }
             }
+        }
+        inboxDrafts.firstOrNull()?.let { waiting ->
+            HorizontalDivider()
+            InboxDraftCard(
+                draft = waiting,
+                count = inboxDrafts.size,
+                canSend = !busy && draft.isBlank() && photos.isEmpty() && preparingPhotos == 0,
+                busy = busy,
+                onSend = onSendInboxDraft,
+                onEdit = onEditInboxDraft,
+                onDiscard = onDiscardInboxDraft,
+            )
         }
         HorizontalDivider()
         Composer(
@@ -231,6 +253,48 @@ private fun FeedbackRow(reportedLabel: String?, enabled: Boolean, onReport: () -
     } else {
         TextButton(onClick = onReport, enabled = enabled) {
             Text("Report a problem", style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
+/**
+ * A draft a session on the PC queued, waiting above the message box. The whole
+ * text is shown so it is read before it goes anywhere; nothing reaches the
+ * assistant until Send is tapped.
+ */
+@Composable
+private fun InboxDraftCard(
+    draft: InboxDraft,
+    count: Int,
+    canSend: Boolean,
+    busy: Boolean,
+    onSend: (String) -> Unit,
+    onEdit: (String) -> Unit,
+    onDiscard: (String) -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                "Draft from your PC" + if (count > 1) " · 1 of $count" else "",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text("Queued ${formatTimestamp(draft.queuedAt)}", style = MaterialTheme.typography.bodySmall)
+            // Keyed so a long draft's scroll position does not carry over to the next one.
+            key(draft.id) {
+                Text(draft.text, Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState()))
+            }
+            if (!canSend && !busy) {
+                Text("Send or clear what you typed to send this one.", style = MaterialTheme.typography.bodySmall)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = { onSend(draft.id) }, enabled = canSend) { Text("Send") }
+                OutlinedButton(onClick = { onEdit(draft.id) }, enabled = !busy) { Text("Edit") }
+                TextButton(onClick = { onDiscard(draft.id) }) { Text("Discard") }
+            }
         }
     }
 }

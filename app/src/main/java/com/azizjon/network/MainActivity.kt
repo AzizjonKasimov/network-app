@@ -29,6 +29,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Coming back from the PC is when its drafts are waiting. */
+    override fun onStart() {
+        super.onStart()
+        viewModel.checkInbox()
+    }
+
     /** The activity is single-task, so a share or a notification tap arrives here once it is running. */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)

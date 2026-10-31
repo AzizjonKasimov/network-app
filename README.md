@@ -16,6 +16,7 @@ The first native Android version includes:
 - looking someone up on the web when you ask or send a link, saved as a note marked as found on the web, with the pages it came from;
 - photos in the chat: a business card, a screenshot of someone's profile, or a name badge, picked from the gallery, taken with the camera, or shared into the app from another app;
 - an evening **Check-in** that asks about people you saved in your phone or who wrote to you on Telegram, WhatsApp, KakaoTalk, or LinkedIn but are not in the network yet, about chats with people who are, and about saved details that may have gone stale;
+- drafts that Claude sessions on your PC queue for the Assistant, encrypted so only the phone can open them, waiting on the Assistant tab for you to send, edit, or discard;
 - private on-device matching across profile fields and linked records;
 - a single chat thread where an agent answers any question about the network and records what the user tells it, across several people in one message;
 - changes the assistant saves land immediately and can be undone together from its reply;
@@ -121,6 +122,28 @@ Each source is off until you turn it on at the bottom of the tab:
 
 What the check-in learns - names, where they turned up, when, and your answers - stays in Room on the phone. It is not in the encrypted backup, the assistant cannot read it, and it never leaves the phone unless you tap **Add** and send the message it starts. **Already saved** copies that one name onto the person you pick, where it becomes part of the network like any profile field: backed up, and readable by the assistant.
 
+## Drafts from your PC
+
+Claude sessions on your PC, in this project or any other such as the meetup's, can hand an update to the Assistant without copy and paste. A session writes the message as it would for you to paste and queues it with `scripts/queue-draft.ps1`. The next time you open Network App, the draft waits on the **Assistant** tab, with a count on the tab: **Send** sends that exact text as your next message, **Edit** moves it into the message box, and **Discard** deletes it. Nothing reaches the assistant until you tap **Send**.
+
+To turn it on, complete the GitHub backup settings, then switch on **Settings → Drafts from your PC**. The phone makes a key pair, keeps the private half in its encrypted preferences, never in the backup, and writes the public half to `network-backup-inbox/key.json` in the data repository. Settings shows the key's fingerprint, such as `3F9A 12C7 88B0 E41D`.
+
+To queue a draft on the PC, pipe it in, or pass `-Path` with a UTF-8 file:
+
+```powershell
+@'
+On 2026-10-21 at the Daejeon Global Tech Coffee meetup I talked with Jane Doe (product designer at Brightline). She is moving to Seoul in December.
+'@ | .\scripts\queue-draft.ps1
+```
+
+A draft holds at most 4,000 characters, the Assistant's limit. The script checks that `gh` is signed in as the owner and the data repository is private, encrypts the draft to the phone's key, and uploads it as `network-backup-inbox/<time>-<id>.enc.json`. It prints the draft's length and file name, never its text. It keeps no secret on the PC, and the backup passphrase is not involved.
+
+The first time, the script pins the phone key's fingerprint in `%LOCALAPPDATA%\NetworkAppInbox\pinned-keys.json` and prints it, so you can compare it with Settings once. After that it refuses a different key. When you turn drafts off and on, or reinstall the app, run `.\scripts\queue-draft.ps1 -TrustNewKey` yourself in a terminal: it shows the new key and pins it when you type yes. A session cannot answer that prompt.
+
+The phone takes waiting drafts whenever the app comes to the front or the Assistant tab opens, at most every 15 seconds. It checks that the repository is private, saves each draft in its encrypted preferences, and only then deletes it from the repository. At most 20 drafts wait on the phone; the rest stay queued for the next look. A draft it cannot open, such as one made for an earlier key, is deleted with a message, and a copy of a draft it already took is skipped. If `key.json` has gone missing or holds another key, the phone puts its own back and says so. **Check now** in Settings looks at once. Turning drafts off deletes the key on the phone and the inbox folder in the repository; drafts already taken stay until you use them.
+
+The folder follows **Backup path**: an emulator set to `emulator-test-backup.enc.json` uses `emulator-test-backup-inbox/`, so it never takes the phone's drafts.
+
 ## Assistant feedback
 
 The assistant is wrong sometimes: it attaches a note to the wrong person, stores a job as a need, or misses something that was plainly stated. Every answer that came from the gateway carries a **Report a problem** action underneath it, which is where those faults get recorded while the evidence is still on screen.
@@ -151,7 +174,7 @@ Network data is sensitive third-party personal information. Android automatic cl
 
 Gateway requests are an explicit exception chosen by the user. Each message sends the message, the bounded history described above, and then whatever records the assistant's tool calls read, never contact values. A web lookup you ask for also sends the person's name and a few identifying details to a web search, and the gateway fetches the pages. See [PRIVACY.md](PRIVACY.md) for the exact boundary. A token stored by a mobile app can be recovered from a rooted or otherwise compromised device, so issue one token per device and revoke it on the gateway if that device is lost.
 
-Photos you attach go to the gateway with that message only, as described under Photos. The check-in reads contact names and chat senders on the phone and keeps them there; see Check-in.
+Photos you attach go to the gateway with that message only, as described under Photos. The check-in reads contact names and chat senders on the phone and keeps them there; see Check-in. Drafts from your PC reach the phone encrypted through the private data repository and go to the gateway only when you send them; see Drafts from your PC.
 
 GitHub backup is optional and configured inside the app:
 
@@ -231,7 +254,8 @@ The script verifies the active GitHub account and repository visibility, prevent
 - The check-in in `checkin`: `CheckinRules` builds the list as one pure function over the stored answers and the network, `ChatNotificationListener` and `ChatNotificationParser` turn chat notifications into names, `ContactsScanner` reads contact names, `CheckinRepository` keeps the `checkins` table, and `EveningCheckin` schedules the reminder as one-time WorkManager work that queues the next day's run behind itself, so it does not drift.
 - Room schema version 8 adds the `checkins` table: who turned up in the address book or a chat app, and the answers given. It is the phone's own bookkeeping and stays out of the backup, so the backup schema is unchanged.
 - Room schema version 9 adds `aliases` to people: their other names, one per line, cleaned by `data/PersonNames`. `checkin/PeopleByName` matches contact and chat names against them, and `NetworkDao.mergePeople` keeps a merged duplicate's name among them. Backup schema 9 carries them; backups written earlier restore everyone with none, and an older app reports a schema 9 backup as unsupported rather than dropping them.
-- Encrypted backup codec separated from the GitHub transport.
+- Encrypted backup codec separated from the GitHub transport, `backup/GitHubContents`, which the PC inbox shares.
+- Drafts from the PC in `inbox`: `InboxCodec` holds the key and draft formats and opens a draft (ECDH P-256, SHA-256, AES-256-GCM, mirroring `scripts/queue-draft.ps1`), `PcInbox` publishes the key, takes drafts, and keeps the key published, `InboxStore` keeps the key and waiting drafts in encrypted preferences, and `MainActivity.onStart` and opening the Assistant tab look for drafts. The backup and the inbox take turns on GitHub, since two commits racing on one branch can fail.
 - Feedback capture and response flattening in `feedback`, kept free of Android types so both are unit-tested.
 - `BackupPayload` carries reported answers beside the snapshot rather than inside it, so diagnostic rows never reach the screens or the assistant's tools. Backup schema 5 adds them; backups written earlier restore with none. Schema 6 adds the `assistant` note origin, so an older app reports a newer backup as unsupported rather than damaged, and schema 8 adds the `web` origin for the same reason. Room itself stays at version 7: an origin is a text column.
 - No backend, account, analytics, telemetry, contact scraping, autonomous outreach, or deletion without confirmation. The check-in reads contact names and chat senders only after you turn it on, to ask about them; it adds nobody by itself.

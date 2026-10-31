@@ -46,6 +46,9 @@ import com.azizjon.network.data.UndoConflictException
 import com.azizjon.network.feedback.AiFeedbackLabel
 import com.azizjon.network.feedback.buildFeedback
 import com.azizjon.network.feedback.installedAppVersion
+import com.azizjon.network.inbox.InboxCheck
+import com.azizjon.network.inbox.InboxDraft
+import com.azizjon.network.inbox.InboxState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -60,6 +63,8 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 data class BackupUiState(
@@ -78,6 +83,7 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
     private val gatewaySettings = app.gatewaySettings
     private val assistantStore = app.assistantStore
     private val captureDraftStore = app.captureDraftStore
+    private val pcInbox = app.pcInbox
     private val agent = AssistantAgent(
         client = app.agentClient,
         tools = AssistantTools(
@@ -133,6 +139,29 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
     private val _requestedSection = MutableStateFlow<AppSection?>(null)
     val requestedSection: StateFlow<AppSection?> = _requestedSection.asStateFlow()
 
+    /** Whether drafts from the PC are on, with their key and last check, for Settings. */
+    val inboxState: StateFlow<InboxState> = pcInbox.state
+
+    /** True while the inbox is being turned on or off, or checked. */
+    private val _inboxBusy = MutableStateFlow(false)
+    val inboxBusy: StateFlow<Boolean> = _inboxBusy.asStateFlow()
+
+    /** Drafts just sent, edited, or discarded, hidden while they are removed from the store. */
+    private val _inboxHidden = MutableStateFlow<Set<String>>(emptySet())
+
+    /** Drafts from the PC waiting on the Assistant tab, oldest first. */
+    val inboxDrafts: StateFlow<List<InboxDraft>> = combine(pcInbox.state, _inboxHidden) { state, hidden ->
+        state.pending.filterNot { it.id in hidden }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /**
+     * One GitHub call at a time from this phone: the backup and the inbox both
+     * commit to the data repository, and two commits racing on one branch can
+     * fail with a conflict.
+     */
+    private val githubLock = Mutex()
+    private var lastInboxCheckAt = 0L
+
     private val photoPreparer = PhotoPreparer(app)
     private var nextPhotoId = 1L
 
@@ -175,6 +204,7 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
             // Never clobber something typed while the encrypted read was running.
             if (restored.isNotBlank() && _composerDraft.value.isBlank()) _composerDraft.value = restored
         }
+        viewModelScope.launch(Dispatchers.IO) { runCatching { pcInbox.load() } }
     }
 
     fun showMessage(value: String) {
@@ -307,6 +337,137 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         }
         attachPhotos(photos)
         openSection(AppSection.CHAT)
+    }
+
+    /**
+     * Takes drafts the PC queued. Runs whenever the app comes to the front, at
+     * most every [INBOX_CHECK_INTERVAL_MS]; a failure is kept for Settings to
+     * show rather than interrupting whatever the app was opened for.
+     */
+    fun checkInbox(fromSettings: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (_inboxBusy.value || (!fromSettings && now - lastInboxCheckAt < INBOX_CHECK_INTERVAL_MS)) return
+        lastInboxCheckAt = now
+        viewModelScope.launch {
+            val enabled = withContext(Dispatchers.IO) { runCatching { pcInbox.load().enabled }.getOrDefault(false) }
+            if (!enabled) return@launch
+            _inboxBusy.value = true
+            try {
+                val result = githubLock.withLock { withContext(Dispatchers.IO) { pcInbox.check(settings.config) } }
+                val report = inboxReport(result)
+                when {
+                    report != null -> showMessage(report)
+                    fromSettings && result.taken == 0 -> showMessage("No new drafts from your PC")
+                    fromSettings -> showMessage("${result.taken} new draft(s) from your PC on the Assistant tab")
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (fromSettings) showMessage(error.message ?: "Could not check for drafts from your PC")
+            } finally {
+                _inboxBusy.value = false
+            }
+        }
+    }
+
+    /** Turns drafts from the PC on or off, which publishes or removes this phone's key. */
+    fun setInboxEnabled(enabled: Boolean) {
+        if (_inboxBusy.value) return
+        viewModelScope.launch {
+            _inboxBusy.value = true
+            try {
+                githubLock.withLock {
+                    withContext(Dispatchers.IO) {
+                        val config = settings.config
+                        if (enabled) pcInbox.enable(config) else pcInbox.disable(config)
+                    }
+                }
+                showMessage(
+                    if (enabled) {
+                        "Drafts from your PC are on. This phone's key is ${pcInbox.state.value.key?.fingerprint}."
+                    } else {
+                        "Drafts from your PC are off"
+                    },
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                val reason = error.message ?: "GitHub could not be reached"
+                showMessage(
+                    if (enabled) {
+                        "Could not turn on drafts from your PC: $reason"
+                    } else {
+                        "Turned off on this phone, but the inbox could not be cleared from GitHub: $reason"
+                    },
+                )
+            } finally {
+                _inboxBusy.value = false
+            }
+        }
+    }
+
+    /**
+     * Sends a draft from the PC as the next message, exactly as if the user had
+     * typed it. It goes through the message box, so the permission prompt or a
+     * missing token leaves it there rather than losing it.
+     */
+    fun sendInboxDraft(id: String) {
+        val draft = inboxDrafts.value.firstOrNull { it.id == id } ?: return
+        if (_chat.value.phase.busy) return
+        if (_composerDraft.value.isNotBlank() || _photos.value.isNotEmpty() || _preparingPhotos.value > 0) {
+            showMessage("Send or clear your own message first.")
+            return
+        }
+        removeInboxDraft(id)
+        updateComposerDraft(draft.text)
+        sendChatMessage()
+    }
+
+    /** Moves a draft from the PC into the message box, after anything already typed. */
+    fun editInboxDraft(id: String) {
+        val draft = inboxDrafts.value.firstOrNull { it.id == id } ?: return
+        val typed = _composerDraft.value.trimEnd()
+        val combined = if (typed.isEmpty()) draft.text else "$typed\n${draft.text}"
+        if (combined.length > AgentClient.MAX_INPUT_CHARACTERS) {
+            showMessage("That draft does not fit after what you typed. Send or clear your message first.")
+            return
+        }
+        removeInboxDraft(id)
+        updateComposerDraft(combined)
+        _composerFocusRequested.value = true
+    }
+
+    fun discardInboxDraft(id: String) {
+        if (inboxDrafts.value.any { it.id == id }) removeInboxDraft(id)
+    }
+
+    /** Hides the draft at once, so a second tap cannot use it twice, while the store forgets it. */
+    private fun removeInboxDraft(id: String) {
+        _inboxHidden.value += id
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { runCatching { pcInbox.take(id) } }
+            _inboxHidden.value -= id
+        }
+    }
+
+    /** What the user should hear about a look at the inbox, beyond the drafts on the card. */
+    private fun inboxReport(result: InboxCheck): String? {
+        val parts = buildList {
+            if (result.keyRestored) {
+                add("This phone's inbox key was missing from the data repository or had been replaced, so the app put it back.")
+            }
+            if (result.removed.isNotEmpty()) {
+                val reasons = result.removed.distinct().joinToString("; ")
+                add(
+                    if (result.removed.size == 1) {
+                        "A draft from your PC could not be opened and was deleted: $reasons."
+                    } else {
+                        "${result.removed.size} drafts from your PC could not be opened and were deleted: $reasons."
+                    },
+                )
+            }
+        }
+        return parts.takeIf { it.isNotEmpty() }?.joinToString(" ")
     }
 
     fun openSection(section: AppSection) {
@@ -724,7 +885,7 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
             }
             setBackupBusy(true)
             try {
-                val check = backupManager.verify(config)
+                val check = githubLock.withLock { backupManager.verify(config) }
                 val reports = if (check.feedback == 0) "" else ", ${check.feedback} report(s)"
                 showMessage(
                     "Passphrase opens the stored backup: ${check.people} people, " +
@@ -752,7 +913,7 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
             settings.markAttemptStarted()
             refreshBackupState()
             try {
-                val restored = backupManager.download(config)
+                val restored = githubLock.withLock { backupManager.download(config) }
                 settings.markBackupNeeded()
                 repository.replaceAll(restored.snapshot, restored.feedback)
                 settings.markBackedUp()
@@ -872,7 +1033,7 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
         settings.markAttemptStarted()
         refreshBackupState()
         try {
-            val result = backupManager.backup(config)
+            val result = githubLock.withLock { backupManager.backup(config) }
             refreshBackupState()
             if (showSuccess) {
                 val reports = if (result.feedback == 0) "" else " and ${result.feedback} assistant report(s)"
@@ -924,6 +1085,7 @@ class NetworkViewModel(application: Application) : AndroidViewModel(application)
     companion object {
         private const val AUTO_BACKUP_DELAY_MS = 1_500L
         private const val DRAFT_SAVE_DELAY_MS = 400L
+        private const val INBOX_CHECK_INTERVAL_MS = 15_000L
         private const val UNREADABLE_PHOTO = "That photo could not be opened."
         private const val CHECKIN_REFRESH_MS = 60 * 60 * 1000L
     }

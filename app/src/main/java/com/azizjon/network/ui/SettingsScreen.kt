@@ -20,6 +20,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -39,6 +40,7 @@ import com.azizjon.network.ai.AgentClient
 import com.azizjon.network.ai.GatewaySettings
 import com.azizjon.network.ai.GatewaySettingsState
 import com.azizjon.network.feedback.AiFeedbackLabel
+import com.azizjon.network.inbox.InboxState
 import com.azizjon.network.update.UpdatePromptState
 import java.time.Instant
 import java.time.ZoneId
@@ -51,6 +53,8 @@ fun SettingsScreen(
     gatewaySettingsState: GatewaySettingsState,
     updateState: UpdatePromptState,
     feedbackState: FeedbackUiState,
+    inboxState: InboxState,
+    inboxBusy: Boolean,
     onSaveAccessToken: (String) -> Unit,
     onClearAccessToken: () -> Unit,
     onRevokeAssistantConsent: () -> Unit,
@@ -60,6 +64,8 @@ fun SettingsScreen(
     onRestore: (() -> Unit) -> Unit,
     onDeleteFeedback: (Long) -> Unit,
     onClearFeedback: () -> Unit,
+    onSetInboxEnabled: (Boolean) -> Unit,
+    onCheckInbox: () -> Unit,
 ) {
     val saved = backupState.config
     var owner by remember(saved) { mutableStateOf(saved.owner) }
@@ -197,6 +203,21 @@ fun SettingsScreen(
             )
 
             Spacer(Modifier.height(8.dp))
+            Text("Drafts from your PC", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Lets Claude sessions on your PC queue messages for the Assistant. Each draft is encrypted on the PC so only this phone can open it, waits in the private data repository, and is deleted there as soon as this phone takes it. Drafts wait on the Assistant tab, and nothing reaches the assistant until you tap Send.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            InboxCard(
+                state = inboxState,
+                busy = inboxBusy,
+                backupConfigured = saved.configured,
+                repository = "${saved.owner}/${saved.repo}",
+                onSetEnabled = onSetInboxEnabled,
+                onCheck = onCheckInbox,
+            )
+
+            Spacer(Modifier.height(8.dp))
             Text("Assistant feedback", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Text(
                 "Report a wrong answer from the Assistant tab and it is stored here with a copy of the message and the response. Reports travel inside the encrypted backup, so backing up is all it takes to hand them over. Delete one once its fault has been fixed.",
@@ -304,6 +325,62 @@ private fun FeedbackCard(
     }
 }
 
+/**
+ * Off until turned on, because turning it on publishes this phone's public key
+ * to the data repository, and the PC script trusts the key it first finds there.
+ */
+@Composable
+private fun InboxCard(
+    state: InboxState,
+    busy: Boolean,
+    backupConfigured: Boolean,
+    repository: String,
+    onSetEnabled: (Boolean) -> Unit,
+    onCheck: () -> Unit,
+) {
+    val key = state.key
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Receive drafts from your PC", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                Switch(
+                    checked = key != null,
+                    onCheckedChange = onSetEnabled,
+                    enabled = !busy && (key != null || backupConfigured),
+                )
+            }
+            if (key == null) {
+                Text(
+                    if (backupConfigured) {
+                        "Turning this on makes a key pair on this phone and puts its public half in the data repository. The private half never leaves the phone and is not in the backup."
+                    } else {
+                        "Save the GitHub backup settings above first."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Text("This phone's key: ${key.fingerprint}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "The PC script shows the key the first time it queues a draft, and it should match this one. Turning this off deletes the key, and anything still queued can no longer be opened.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text("Drafts arrive in ${key.folder}/ in $repository.", style = MaterialTheme.typography.bodySmall)
+                when {
+                    busy -> Text("Working…", style = MaterialTheme.typography.bodySmall)
+                    state.lastError.isNotBlank() -> Text(
+                        "Last check failed: ${state.lastError}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    state.lastCheckAt > 0 -> Text("Last checked ${formatTimestamp(state.lastCheckAt)}", style = MaterialTheme.typography.bodySmall)
+                }
+                TextButton(onClick = onCheck, enabled = !busy) { Text("Check now") }
+            }
+        }
+    }
+}
+
 @Composable
 private fun BackupStatusCard(state: BackupUiState) {
     val status = state.status
@@ -336,5 +413,5 @@ private fun SettingsField(
 }
 
 private val timestampFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
-private fun formatTimestamp(value: Long): String =
+internal fun formatTimestamp(value: Long): String =
     Instant.ofEpochMilli(value).atZone(ZoneId.systemDefault()).format(timestampFormatter)
