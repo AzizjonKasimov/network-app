@@ -61,6 +61,8 @@ param(
 
 begin {
     $ErrorActionPreference = 'Stop'
+    # For Assert-NetworkDataRepository, the check the lookup scripts make too.
+    . (Join-Path $PSScriptRoot 'lib\NetworkBackup.ps1')
     # The Assistant's limit, AgentClient.MAX_INPUT_CHARACTERS in the app.
     $maxCharacters = 4000
     $label = 'network-app-inbox-draft:1'
@@ -108,17 +110,6 @@ begin {
         $errors = @($records | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_" })
         $lines = @($records | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_" })
         [pscustomobject]@{ Code = $code; Text = $lines -join "`n"; Error = ($errors -join ' ').Trim() }
-    }
-
-    function Assert-PrivateRepository {
-        $account = Invoke-GitHub @('api', 'user', '--jq', '.login')
-        if ($account.Code -ne 0) { throw 'GitHub CLI is not authenticated. Run: gh auth login' }
-        if ($account.Text.Trim() -ne $Owner) { throw "GitHub CLI is authenticated as $($account.Text.Trim()), not $Owner." }
-        $visibility = Invoke-GitHub @('repo', 'view', "$Owner/$Repo", '--json', 'visibility', '--jq', '.visibility')
-        if ($visibility.Code -ne 0) { throw "Data repository $Owner/$Repo was not found." }
-        if ($visibility.Text.Trim() -ne 'PRIVATE') {
-            throw "$Owner/$Repo is $($visibility.Text.Trim()). Refusing to queue network data to a repository that is not private."
-        }
     }
 
     function Get-PhoneKey([string]$folder) {
@@ -207,7 +198,7 @@ end {
         if ([Console]::IsInputRedirected) {
             throw 'Run -TrustNewKey yourself in a terminal: it asks you to compare the key with the phone.'
         }
-        Assert-PrivateRepository
+        Assert-NetworkDataRepository -Owner $Owner -Repo $Repo -Action 'queue network data to'
         $fingerprint = Get-KeyFingerprint (Get-PhoneKey $folder)
         Write-Host "The phone's inbox key for $pinName is now:  $($fingerprint.Display)"
         Write-Host 'Open Network App > Settings > Drafts from your PC and check that it shows the same key.'
@@ -242,7 +233,7 @@ end {
         return
     }
 
-    Assert-PrivateRepository
+    Assert-NetworkDataRepository -Owner $Owner -Repo $Repo -Action 'queue network data to'
     [byte[]]$phoneKey = Get-PhoneKey $folder
     $fingerprint = Get-KeyFingerprint $phoneKey
     $pinned = (Read-Pins)[$pinName]

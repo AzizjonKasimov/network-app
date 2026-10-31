@@ -1,9 +1,29 @@
 # Reading the app's encrypted GitHub backup on this machine, shared by
-# read-feedback.ps1 and network-lookup.ps1. Dot-source it.
+# read-feedback.ps1 and network-lookup.ps1. queue-draft.ps1 uses only its check
+# of the data repository. Dot-source it.
 #
 # The backup is decrypted in memory only. The passphrase is typed by the owner
 # every time and is never written to a file, passed as an argument, echoed, or
 # stored in shell history.
+
+function Assert-NetworkDataRepository {
+    <# Checks that gh is signed in as the owner and that the data repository is private. #>
+    param(
+        [Parameter(Mandatory)][string]$Owner,
+        [Parameter(Mandatory)][string]$Repo,
+        # What the caller does with network data, for the refusal.
+        [string]$Action = 'read network data from'
+    )
+    $account = (gh api user --jq '.login' 2>$null)
+    if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI is not authenticated. Run: gh auth login' }
+    if ($account.Trim() -ne $Owner) { throw "GitHub CLI is authenticated as $account, not $Owner." }
+
+    $visibility = (gh repo view "$Owner/$Repo" --json visibility --jq '.visibility' 2>$null)
+    if ($LASTEXITCODE -ne 0) { throw "Backup repository $Owner/$Repo was not found." }
+    if ($visibility.Trim() -ne 'PRIVATE') {
+        throw "$Owner/$Repo is $visibility. Refusing to $Action a repository that is not private."
+    }
+}
 
 function Get-NetworkBackupEnvelope {
     <# Fetches the encrypted backup, or reads -EnvelopeFile, and checks its format. #>
@@ -20,15 +40,7 @@ function Get-NetworkBackupEnvelope {
         Write-Host "==> Reading $EnvelopeFile" -ForegroundColor Cyan
         $text = Get-Content -LiteralPath $EnvelopeFile -Raw
     } else {
-        $account = (gh api user --jq '.login' 2>$null)
-        if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI is not authenticated. Run: gh auth login' }
-        if ($account.Trim() -ne $Owner) { throw "GitHub CLI is authenticated as $account, not $Owner." }
-
-        $visibility = (gh repo view "$Owner/$Repo" --json visibility --jq '.visibility' 2>$null)
-        if ($LASTEXITCODE -ne 0) { throw "Backup repository $Owner/$Repo was not found." }
-        if ($visibility.Trim() -ne 'PRIVATE') {
-            throw "$Owner/$Repo is $visibility. Refusing to read network data from a repository that is not private."
-        }
+        Assert-NetworkDataRepository -Owner $Owner -Repo $Repo
 
         Write-Host "==> Fetching $Path from $Owner/$Repo@$Branch" -ForegroundColor Cyan
         # Must be requested raw. Decoding the base64 .content through a PowerShell
