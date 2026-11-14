@@ -287,7 +287,8 @@ abstract class NetworkDao {
      * kept profile wins wherever it already says something; the duplicate only
      * fills fields the kept one left empty, and its tags and notes are added
      * rather than dropped. Its name joins the kept entry's other names, since a
-     * duplicate usually exists because the person turned up under that name.
+     * duplicate usually exists because the person turned up under that name,
+     * and counts as a former name, matched as the main name it was.
      */
     @Transaction
     open suspend fun mergePeople(keepId: Long, mergeId: Long, now: Long): MergeResult {
@@ -300,18 +301,23 @@ abstract class NetworkDao {
             moveAllCapabilities(mergeId, keepId) +
             moveAllAffiliations(mergeId, keepId) +
             moveAllFacts(mergeId, keepId)
+        val merged = keep.copy(
+            location = keep.location.ifBlank { merge.location },
+            contact = keep.contact.ifBlank { merge.contact },
+            relationship = keep.relationship.ifBlank { merge.relationship },
+            tags = mergeTags(keep.tags, merge.tags),
+            notes = listOf(keep.notes, merge.notes).map(String::trim).filter(String::isNotEmpty).distinct()
+                .joinToString("\n\n"),
+            isSelf = keep.isSelf || merge.isSelf,
+            archived = keep.archived && merge.archived,
+            updatedAt = now,
+        )
         savePerson(
-            keep.copy(
-                location = keep.location.ifBlank { merge.location },
-                contact = keep.contact.ifBlank { merge.contact },
-                relationship = keep.relationship.ifBlank { merge.relationship },
-                tags = mergeTags(keep.tags, merge.tags),
-                notes = listOf(keep.notes, merge.notes).map(String::trim).filter(String::isNotEmpty).distinct()
-                    .joinToString("\n\n"),
-                isSelf = keep.isSelf || merge.isSelf,
-                archived = keep.archived && merge.archived,
-                updatedAt = now,
-                aliases = PersonNames.clean(keep.name, keep.otherNames + merge.name + merge.otherNames),
+            PersonNames.withNames(
+                merged,
+                before = keep,
+                otherNames = keep.otherNames + merge.name + merge.otherNames,
+                alsoFormer = listOf(merge.name) + merge.formerNames,
             ),
         )
         deletePersonById(mergeId)

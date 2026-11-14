@@ -536,7 +536,7 @@ private fun PersonEditorDialog(person: PersonEntity?, onDismiss: () -> Unit, onS
                     { aliases = it },
                     "Other names",
                     minLines = 2,
-                    supportingText = "One per line, as your phone or a chat app shows them. The check-in knows them by these too.",
+                    supportingText = "One per line, as your phone or a chat app shows them. The check-in knows them by these too, and renaming someone keeps the old name here.",
                 )
                 FormField(location, { location = it }, "Location")
                 FormField(contact, { contact = it }, "Contact details")

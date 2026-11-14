@@ -24,8 +24,11 @@ data class PersonEntity(
     val updatedAt: Long,
     /** Other names, one per line: see [PersonNames]. */
     @ColumnInfo(defaultValue = "''") val aliases: String = "",
+    /** The other names that used to be the main name, one per line: see [PersonNames.withNames]. */
+    @ColumnInfo(defaultValue = "''") val formerAliases: String = "",
 ) {
     val otherNames: List<String> get() = PersonNames.split(aliases)
+    val formerNames: List<String> get() = PersonNames.split(formerAliases)
 }
 
 @Entity(

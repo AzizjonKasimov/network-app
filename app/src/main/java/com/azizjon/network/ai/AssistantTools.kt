@@ -327,9 +327,15 @@ class AssistantTools(
         }
         if (add.isNotEmpty() || remove.isNotEmpty() || after.name != before.name) {
             val kept = before.otherNames.filterNot { name -> remove.any { it.sameNameAs(name) } }
-            val count = (kept + add).map(NameKey::exact).filter { it.isNotEmpty() && it != NameKey.exact(after.name) }.distinct().size
-            if (count > PersonNames.MAX_NAMES) throw ToolFailure("A person can have at most ${PersonNames.MAX_NAMES} other names.")
-            after = after.copy(aliases = PersonNames.clean(after.name, kept + add))
+            // A rename keeps the old name (PersonNames.withNames); unchanged, it is the main name and not counted.
+            val keepsOldName = !before.name.sameNameAs(after.name)
+            val count = (listOf(before.name) + kept + add).map(NameKey::exact)
+                .filter { it.isNotEmpty() && it != NameKey.exact(after.name) }.distinct().size
+            if (count > PersonNames.MAX_NAMES) {
+                val counted = if (keepsOldName) ", counting the old name a rename keeps" else ""
+                throw ToolFailure("A person can have at most ${PersonNames.MAX_NAMES} other names$counted.")
+            }
+            after = PersonNames.withNames(after, before, kept + add)
         }
         if (after == before) throw ToolFailure("Nothing would change: ${before.name}'s profile already says that.")
 

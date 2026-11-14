@@ -20,7 +20,7 @@ import com.azizjon.network.checkin.CheckinEntity
         AiFeedbackEntity::class,
         CheckinEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = false,
 )
 abstract class NetworkDatabase : RoomDatabase() {
@@ -37,7 +37,19 @@ abstract class NetworkDatabase : RoomDatabase() {
                 "network.db",
             ).addMigrations(
                 MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9,
+                MIGRATION_9_10,
             ).build().also { instance = it }
+        }
+
+        /**
+         * Remembers which other names used to be the main name, so a rename
+         * leaves the check-in matching the old name as before. Everyone starts
+         * with none: an old name kept before this looks like any other name.
+         */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE people ADD COLUMN formerAliases TEXT NOT NULL DEFAULT ''")
+            }
         }
 
         /**

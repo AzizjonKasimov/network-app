@@ -132,6 +132,23 @@ class CheckinRulesTest {
     }
 
     @Test
+    fun renamingSomeoneKeepsTheirChatsOffNewPeople() {
+        // Saved as "Jordan", then renamed, which keeps "Jordan" as a former name.
+        val jordan = person(1, "Jordan Kim", aliases = "Jordan", formerAliases = "Jordan")
+        val rows = listOf(
+            chat(ChatSources.TELEGRAM, "Jordan (Climate meetup)", seen = now - day),
+            chat(ChatSources.KAKAOTALK, "Jordan Kim", seen = now - 2 * day),
+        )
+
+        val list = CheckinRules.build(rows, NetworkSnapshot(people = listOf(jordan)), now)
+
+        assertTrue(list.newPeople.isEmpty())
+        val asked = list.talkedTo.single()
+        assertEquals(1L, asked.person.id)
+        assertEquals(listOf(ChatSources.TELEGRAM, ChatSources.KAKAOTALK), asked.sources)
+    }
+
+    @Test
     fun someoneTurningUpUnderSeveralNamesIsAskedAboutOnce() {
         val minsu = person(1, "Minsu Kim", aliases = "Minsu (Lumen CTO)\n김민수")
         val rows = listOf(
@@ -209,8 +226,18 @@ class CheckinRulesTest {
     private fun record(ref: String, status: String, at: Long) =
         CheckinEntity(ref, CheckinEntity.SOURCE_RECORDS, "", at, at, status, at)
 
-    private fun person(id: Long, name: String, archived: Boolean = false, self: Boolean = false, createdAt: Long = 0, aliases: String = "") =
-        PersonEntity(id = id, name = name, archived = archived, isSelf = self, createdAt = createdAt, updatedAt = createdAt, aliases = aliases)
+    private fun person(
+        id: Long,
+        name: String,
+        archived: Boolean = false,
+        self: Boolean = false,
+        createdAt: Long = 0,
+        aliases: String = "",
+        formerAliases: String = "",
+    ) = PersonEntity(
+        id = id, name = name, archived = archived, isSelf = self, createdAt = createdAt, updatedAt = createdAt,
+        aliases = aliases, formerAliases = formerAliases,
+    )
 
     private fun note(personId: Long, at: Long) =
         InteractionEntity(id = at, personId = personId, note = "Synthetic note", occurredAt = at, createdAt = at)

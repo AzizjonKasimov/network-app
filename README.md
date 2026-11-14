@@ -7,7 +7,7 @@ Network App is a private Android memory aid for a personal network. It records w
 The first native Android version includes:
 
 - create, edit, archive, and delete people;
-- keep the other names someone goes by - how your phone or a chat app shows them, a name in another script, a nickname - so the check-in and the assistant recognize them under any of them;
+- keep the other names someone goes by - how your phone or a chat app shows them, a name in another script, a nickname, the name they had before you renamed them - so the check-in and the assistant recognize them under any of them;
 - record several concurrent positions per person, each with its own organization, role, and current/past state, with study listed separately under Education;
 - keep background facts that are not a need, a capability, a position, or education as their own dated, editable records;
 - mark a profile as the user's own profile for reciprocal matching;
@@ -112,7 +112,7 @@ It asks about four things:
 - **Still true?** - an open need not confirmed for 60 days, or a current position not confirmed for 180 days, a few at a time, oldest first. **Still open** or **Still there** re-dates it, **Done** closes the need, **Left** keeps the position as a past one, and **Later** asks again in 30 days.
 - **Missing details** - someone added in the last 30 days with no work or study saved.
 
-Whether someone is already in the network is decided when the list is drawn, by their name or one of their other names, ignoring case, accents, emoji, and word order. A bracketed aside is ignored against the name, so "Minsu Kim (Lumen)" is Minsu Kim, but an other name must match with its brackets, so "Minsu (Gym)" is not taken for someone saved as "Minsu (Lumen CTO)". So a person you add or link drops off the list on their own, and so does a chat question once a note about that person is saved. Other names can be edited on the person's page.
+Whether someone is already in the network is decided when the list is drawn, by their name or one of their other names, ignoring case, accents, emoji, and word order. A bracketed aside is ignored against the name, so "Minsu Kim (Lumen)" is Minsu Kim, and against a name they had before: renaming someone keeps the old name among their other names, so after "Jordan" becomes "Jordan Kim", "Jordan (Climate meetup)" is still them. Any other other name must match with its brackets, so "Minsu (Gym)" is not taken for someone saved as "Minsu (Lumen CTO)", or for someone whose other name is just "Minsu". So a person you add or link drops off the list on their own, and so does a chat question once a note about that person is saved. Other names can be edited on the person's page.
 
 Each source is off until you turn it on at the bottom of the tab:
 
@@ -276,6 +276,7 @@ The script verifies the active GitHub account and repository visibility, prevent
 - The check-in in `checkin`: `CheckinRules` builds the list as one pure function over the stored answers and the network, `ChatNotificationListener` and `ChatNotificationParser` turn chat notifications into names, `ContactsScanner` reads contact names, `CheckinRepository` keeps the `checkins` table, and `EveningCheckin` schedules the reminder as one-time WorkManager work that queues the next day's run behind itself, so it does not drift.
 - Room schema version 8 adds the `checkins` table: who turned up in the address book or a chat app, and the answers given. It is the phone's own bookkeeping and stays out of the backup, so the backup schema is unchanged.
 - Room schema version 9 adds `aliases` to people: their other names, one per line, cleaned by `data/PersonNames`. `checkin/PeopleByName` matches contact and chat names against them, and `NetworkDao.mergePeople` keeps a merged duplicate's name among them. Backup schema 9 carries them; backups written earlier restore everyone with none, and an older app reports a schema 9 backup as unsupported rather than dropping them.
+- Room schema version 10 adds `formerAliases`: which of those other names used to be the main name. `PersonNames.withNames` keeps the old name whenever the person screen, the assistant's `update_person`, or a merge replaces a main name, and `checkin/PeopleByName` matches former names the way it matches a main name. Backup schema 10 carries them; backups written earlier restore everyone with none.
 - Encrypted backup codec separated from the GitHub transport, `backup/GitHubContents`, which the PC inbox shares.
 - Drafts from the PC in `inbox`: `InboxCodec` holds the key and draft formats and opens a draft (ECDH P-256, SHA-256, AES-256-GCM, mirroring `scripts/queue-draft.ps1`), `PcInbox` publishes the key, takes drafts, and keeps the key published, `InboxStore` keeps the key and waiting drafts in encrypted preferences, and `MainActivity.onStart` and opening the Assistant tab look for drafts. The backup and the inbox take turns on GitHub, since two commits racing on one branch can fail.
 - Feedback capture and response flattening in `feedback`, kept free of Android types so both are unit-tested.

@@ -301,6 +301,22 @@ class AssistantToolsInstrumentedTest {
         assertEquals(listOf("조던"), store.person(jordan)!!.otherNames)
     }
 
+    /** The phone and chat apps still show the old name, so the check-in must keep knowing them by it. */
+    @Test
+    fun aRenameKeepsTheOldNameAsAFormerName() = runBlocking {
+        val jordan = ok(AgentTurnLog(), "create_person", JSONObject().put("name", "Jordan")).getLong("person_id")
+
+        val log = AgentTurnLog()
+        ok(log, "update_person", JSONObject().put("person_id", jordan).put("name", "Jordan Kim"))
+        assertEquals(listOf("Jordan"), store.person(jordan)!!.otherNames)
+        assertEquals(listOf("Jordan"), store.person(jordan)!!.formerNames)
+        assertEquals(listOf("Renamed Jordan to Jordan Kim", "Saved \"Jordan\" as another name for Jordan Kim"), log.saved)
+
+        store.undo(log.changes, now.toEpochMilli())
+        assertEquals("Jordan", store.person(jordan)!!.name)
+        assertTrue(store.person(jordan)!!.formerNames.isEmpty())
+    }
+
     @Test
     fun readsFindPeopleByNameAndWordsAndBrowseOnlyWhatIsCurrent() = runBlocking {
         val setup = AgentTurnLog()

@@ -32,6 +32,24 @@ class PeopleByNameTest {
     }
 
     @Test
+    fun aFirstNameFromAChatDoesNotStandForEveryoneWithIt() {
+        // How a chat app showed Minsu Kim; a contact "Minsu (Gym)" can be another Minsu.
+        val names = PeopleByName(listOf(person(1, "Minsu Kim", "Minsu")))
+
+        assertEquals(1, names.find("Minsu").size)
+        assertTrue(names.find("Minsu (Gym)").isEmpty())
+    }
+
+    @Test
+    fun renamingSomeoneKeepsTheOldNameMatchingAsBefore() {
+        val before = person(3, "Jordan")
+        val renamed = PersonNames.withNames(before.copy(name = "Jordan Kim"), before, emptyList())
+
+        assertEquals(listOf(before), PeopleByName(listOf(before)).find("Jordan (Climate meetup)"))
+        assertEquals(listOf(renamed), PeopleByName(listOf(renamed)).find("Jordan (Climate meetup)"))
+    }
+
+    @Test
     fun aPersonFoundUnderTwoOfTheirNamesIsFoundOnce() {
         val names = PeopleByName(listOf(person(1, "Minsu Kim", "Minsu Kim (Lumen)")))
 

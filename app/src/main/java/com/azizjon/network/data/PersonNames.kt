@@ -31,5 +31,26 @@ object PersonNames {
             .joinToString("\n")
     }
 
+    /**
+     * [after], saved over [before], with [otherNames] as its other names.
+     *
+     * A main name that changes is kept, first among the other names, because
+     * the phone's contacts and chat apps still show it. Former names are the
+     * other names that used to be the main name: [before]'s, the name just
+     * replaced, and [alsoFormer]. The check-in matches them as it matches a
+     * main name, and one taken off the other names stops being a former name.
+     */
+    fun withNames(
+        after: PersonEntity,
+        before: PersonEntity?,
+        otherNames: List<String>,
+        alsoFormer: List<String> = emptyList(),
+    ): PersonEntity {
+        val replaced = listOfNotNull(before?.name?.takeIf { it != after.name })
+        val aliases = clean(after.name, replaced + otherNames)
+        val former = (before?.formerNames.orEmpty() + replaced + alsoFormer).map(NameKey::exact).toSet()
+        return after.copy(aliases = aliases, formerAliases = split(aliases).filter { NameKey.exact(it) in former }.joinToString("\n"))
+    }
+
     private val WHITESPACE = Regex("""\s+""")
 }

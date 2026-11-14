@@ -42,13 +42,15 @@ class NetworkDatabaseMigrationTest {
                 NetworkDatabase.MIGRATION_6_7,
                 NetworkDatabase.MIGRATION_7_8,
                 NetworkDatabase.MIGRATION_8_9,
+                NetworkDatabase.MIGRATION_9_10,
             )
             .build()
         try {
             val dao = database.networkDao()
             assertEquals("Legacy Person", dao.allPeople().single().name)
-            // Nobody had other names before, and one can be added straight away.
+            // Nobody had other names or former names before, and one can be added straight away.
             assertEquals("", dao.allPeople().single().aliases)
+            assertEquals("", dao.allPeople().single().formerAliases)
             dao.addAlias(1, "Legacy (Corp)", now = 9)
             assertEquals(listOf("Legacy (Corp)"), dao.allPeople().single().otherNames)
 
@@ -266,10 +268,17 @@ class NetworkDatabaseMigrationTest {
                 listOf("Synthetic Minsu (Lumen CTO)", "Synthetic Minsu", "김민수"),
                 dao.person(minsu)!!.otherNames,
             )
+            // The duplicate's main name is matched as the main name it was.
+            assertEquals(listOf("Synthetic Minsu"), dao.person(minsu)!!.formerNames)
 
             // Typed on the person screen, one per line, with the main name and blanks dropped.
             repository.savePerson(PersonDraft(id = minsu, name = "Synthetic Minsu Kim", aliases = "\n Synthetic Minsu \nSynthetic Minsu Kim\n"))
             assertEquals(listOf("Synthetic Minsu"), dao.person(minsu)!!.otherNames)
+
+            // Renamed on the person screen: the old name stays, first, as a former name.
+            repository.savePerson(PersonDraft(id = minsu, name = "Synthetic Minsoo Kim", aliases = "Synthetic Minsu"))
+            assertEquals(listOf("Synthetic Minsu Kim", "Synthetic Minsu"), dao.person(minsu)!!.otherNames)
+            assertEquals(listOf("Synthetic Minsu Kim", "Synthetic Minsu"), dao.person(minsu)!!.formerNames)
         } finally {
             database.close()
         }

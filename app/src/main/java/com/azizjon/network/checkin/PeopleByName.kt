@@ -6,12 +6,17 @@ import com.azizjon.network.data.PersonEntity
  * Finds saved people by a name as the phone's contacts or a chat app shows it.
  *
  * A main name matches with or without a bracketed aside, so "Minsu Kim
- * (Lumen)" is Minsu Kim. An other name has to match whole, brackets included:
- * other names are mostly copied from a contact such as "Minsu (Lumen CTO)",
- * and its bracket is what tells that Minsu from "Minsu (Gym)".
+ * (Lumen)" is Minsu Kim, and so does a former main name, which a rename or
+ * a merge keeps among the other names: someone saved as "Jordan" and renamed
+ * "Jordan Kim" is still "Jordan (Climate meetup)". Any other other name has
+ * to match whole, brackets included. Those are mostly copied from a contact
+ * or a chat, like "Minsu (Lumen CTO)" or just "Minsu", and neither may stand
+ * for "Minsu (Gym)", who can be somebody else.
  */
 class PeopleByName(people: List<PersonEntity>) {
-    private val byName = people.groupBy { NameKey.of(it.name) } - ""
+    private val byName = people
+        .flatMap { person -> (listOf(person.name) + person.formerNames).map { NameKey.of(it) to person } }
+        .groupBy({ it.first }, { it.second }) - ""
     private val byOtherName = people
         .flatMap { person -> person.otherNames.map { NameKey.exact(it) to person } }
         .groupBy({ it.first }, { it.second }) - ""

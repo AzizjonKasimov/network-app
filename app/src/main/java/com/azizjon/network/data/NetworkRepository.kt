@@ -85,7 +85,7 @@ class NetworkRepository(private val dao: NetworkDao) {
     suspend fun savePerson(draft: PersonDraft): Long {
         val now = System.currentTimeMillis()
         val existing = if (draft.id == 0L) null else dao.person(draft.id)
-        val person = PersonEntity(
+        val profile = PersonEntity(
             id = draft.id,
             name = draft.name.trim(),
             location = draft.location.trim(),
@@ -97,8 +97,8 @@ class NetworkRepository(private val dao: NetworkDao) {
             archived = draft.archived,
             createdAt = existing?.createdAt ?: now,
             updatedAt = now,
-            aliases = PersonNames.clean(draft.name, PersonNames.split(draft.aliases)),
         )
+        val person = PersonNames.withNames(profile, existing, PersonNames.split(draft.aliases))
         require(person.name.isNotBlank()) { "Name is required" }
         return dao.savePerson(person)
     }

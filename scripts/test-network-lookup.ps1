@@ -64,7 +64,7 @@ function New-TestPerson([long]$Id, [string]$Name, [hashtable]$More = @{}) {
 
 $people = @(
     New-TestPerson 1 'Synthetic Me' @{ isSelf = $true; contact = $email }
-    New-TestPerson 2 'Synthetic Sara' @{ aliases = "Sara S.`n합성 사라"; location = 'Synthetic City'; contact = $phone; tags = 'design'; notes = "First synthetic profile line.`nSecond synthetic profile line." }
+    New-TestPerson 2 'Synthetic Sara' @{ aliases = "Sara S.`n합성 사라"; formerAliases = 'Sara S.'; location = 'Synthetic City'; contact = $phone; tags = 'design'; notes = "First synthetic profile line.`nSecond synthetic profile line." }
     New-TestPerson 3 'Synthetic Archived' @{ archived = $true }
 )
 $people += foreach ($letter in 'A', 'B', 'C', 'D', 'E', 'F') { New-TestPerson (10 + [int][char]$letter - 64) "Synthetic Kim $letter" }
@@ -78,7 +78,7 @@ $longNote = ('Synthetic filler sentence. ' * 15) + 'The synthetic team discussed
 $interactions += [ordered]@{ id = 300; personId = 12; note = $longNote; occurredAt = $start; createdAt = $start; origin = 'manual' }
 
 $payload = [ordered]@{
-    schemaVersion = 9
+    schemaVersion = 10
     exportedAt    = $start + 40 * $day
     people        = $people
     interactions  = $interactions
@@ -127,6 +127,7 @@ try {
     Write-Host '==> Name lookups' -ForegroundColor Cyan
     $sara = Lookup @{ Name = @('Synthetic Sara') }
     Check 'says when the backup was made' ($sara -match 'Backup made \d{4}-\d{2}-\d{2}')
+    Check 'knows the backup''s schema' (-not $sara.Contains('newer than this script knows'))
     Check 'shows the profile with other names' ($sara.Contains('== Synthetic Sara') -and $sara.Contains('Other names: Sara S.; 합성 사라'))
     Check 'says a contact is saved without showing it' ($sara.Contains('Contact saved: yes'))
     Check 'shows positions and education' ($sara.Contains('Synthetic designer at Example Labs (current') -and $sara.Contains('MSc at Example University (past'))

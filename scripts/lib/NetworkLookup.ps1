@@ -28,7 +28,8 @@ function Invoke-NetworkLookup {
     $index = New-NetworkIndex $Payload
     $made = if ($Payload.exportedAt) { [DateTimeOffset]::FromUnixTimeMilliseconds([long]$Payload.exportedAt).ToLocalTime().ToString('yyyy-MM-dd HH:mm') } else { 'at an unknown time' }
     "Backup made $made; anything changed on the phone since then is not in it."
-    if ($schema -gt 9) { "This backup's data schema ($schema) is newer than this script knows (9), so fields added since are not shown." }
+    # Schema 10's formerAliases is not shown: it only marks some of the other names, and the assistant's tools do not read it.
+    if ($schema -gt 10) { "This backup's data schema ($schema) is newer than this script knows (10), so fields added since are not shown." }
     ''
 
     if ($Self) {

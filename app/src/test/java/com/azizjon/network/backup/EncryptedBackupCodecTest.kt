@@ -218,13 +218,13 @@ class EncryptedBackupCodecTest {
     @Test
     fun otherNamesRoundTripAndAnOlderAppIsToldTheBackupIsTooNew() {
         val snapshot = sampleSnapshot().let { sample ->
-            sample.copy(people = sample.people.map { it.copy(aliases = "Sample (Northwind CEO)\n샘플") })
+            sample.copy(people = sample.people.map { it.copy(aliases = "Sample\nSample (Northwind CEO)\n샘플", formerAliases = "Sample") })
         }
         val json = EncryptedBackupCodec.payloadToJson(BackupPayload(snapshot))
 
         assertEquals(snapshot, EncryptedBackupCodec.payloadFromJson(json).snapshot)
-        // Version 8 would restore the people without their other names.
-        assertEquals(9, JSONObject(json).getInt("schemaVersion"))
+        // Version 9 would restore the people without knowing which other name used to be the main name.
+        assertEquals(10, JSONObject(json).getInt("schemaVersion"))
     }
 
     @Test
@@ -239,7 +239,9 @@ class EncryptedBackupCodecTest {
             .put("affiliations", JSONArray())
             .put("facts", JSONArray())
 
-        assertEquals("", EncryptedBackupCodec.payloadFromJson(v8.toString()).snapshot.people.single().aliases)
+        val person = EncryptedBackupCodec.payloadFromJson(v8.toString()).snapshot.people.single()
+        assertEquals("", person.aliases)
+        assertEquals("", person.formerAliases)
     }
 
     private fun sampleSnapshot(): NetworkSnapshot {
